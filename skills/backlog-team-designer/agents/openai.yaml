@@ -1,0 +1,3 @@
+interface:
+  display_name: "Backlog Team Designer"
+  short_description: "Graph-based team roles, sizing, and task clusters"

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Critical Path Planner"
+  short_description: "Atomic backlogs, dependency graphs, and critical paths"

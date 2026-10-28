@@ -1,0 +1,3 @@
+interface:
+  display_name: "Native Plan Executor"
+  short_description: "Execute plans with native, model-routed agent teams"

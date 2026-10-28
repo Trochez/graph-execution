@@ -1,0 +1,3 @@
+interface:
+  display_name: "Gexec"
+  short_description: "Run backlog, team design, and execution in strict order"
