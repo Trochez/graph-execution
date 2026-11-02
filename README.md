@@ -17,7 +17,7 @@ Graph Execution is a set of four installable agent skills for turning a Markdown
 critical-path-planner -> backlog-team-designer -> native-plan-executor
 ```
 
-The repository includes each constituent skill as a standalone folder so Codex can discover and invoke it directly as well. `gexec` expects those three skills to be installed and validates their artifacts between stages.
+The repository includes each constituent skill as a standalone folder so either supported CLI can discover and invoke it directly. `gexec` expects those three skills to be installed and validates their artifacts between stages.
 
 ## Requirements
 
@@ -27,7 +27,7 @@ The repository includes each constituent skill as a standalone folder so Codex c
 
 ## Install
 
-Clone the repository, then copy the four skill folders into your Codex skills directory. The default is `~/.codex/skills`; if `CODEX_HOME` is set, use `$CODEX_HOME/skills` instead.
+For Codex, clone the repository, then copy the four skill folders into your Codex skills directory. The default is `~/.codex/skills`; if `CODEX_HOME` is set, use `$CODEX_HOME/skills` instead.
 
 ```bash
 git clone https://github.com/Trochez/graph-execution.git
