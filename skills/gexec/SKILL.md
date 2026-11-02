@@ -27,7 +27,7 @@ The active master coordinates the sequence. Load and apply each constituent skil
 
 - **Stage 1:** Apply `$critical-path-planner` to the original Markdown plan. Validate the complete task/dependency bundle and source coverage. It produces the backlog; it does not design or launch the execution team.
 - **Stage 2:** Only after stage 1's verified completion, apply `$backlog-team-designer` to that run's validated backlog/tasks and original constraints. Validate complete ownership and a feasible team definition. It does not launch implementation agents.
-- **Stage 3:** Only after stage 2's verified completion, apply `$native-plan-executor` using the original plan, the exact validated backlog and team definition. Follow its native-agent, model-routing, ownership and verification policies through full implementation.
+- **Stage 3:** Only after stage 2's verified completion, apply `$native-plan-executor` using the original plan, the exact validated backlog and team definition. Have the executor resolve the **active Codex or Cline native runtime** before model routing or delegation; do not change hosts mid-run. Follow its host-specific native-agent, model-routing, ownership and verification policies through full implementation.
 
 Keep each stage's outputs in its own run subdirectory. Record actual artifact paths and fingerprints; never choose another run's files by filename alone. Use the protocol's semantic checks before marking a stage completed. The helper guards manifest transitions and stale files, not actual agent runtime behavior; the master must verify no work or writers remain from the finishing stage.
 

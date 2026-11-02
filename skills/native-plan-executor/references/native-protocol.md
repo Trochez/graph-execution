@@ -1,4 +1,6 @@
-# Native execution protocol
+# Codex native execution protocol
+
+This file applies when [runtime-selection.md](runtime-selection.md) confirms **Codex** is the active host. Cline uses [cline-protocol.md](cline-protocol.md). The same task ownership, verification and evidence requirements apply to both; the Codex-specific tool examples below must not be invoked inside Cline.
 
 ## Preflight and execution record
 
