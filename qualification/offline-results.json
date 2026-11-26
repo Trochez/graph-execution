@@ -1,0 +1,68 @@
+{
+  "plan_id": "PAX-GEXEC-FINAL-1",
+  "candidate_commit": "46cf17809704a0ce2bdf84b6f82c48b75e100d6d",
+  "result": "NOT_RUN",
+  "reason": "G0 prerequisite failure; P17 and P19 prohibited by hard gate",
+  "baseline_ci": [
+    {
+      "id": 45888464419,
+      "name": "Pax durable runtime integration",
+      "conclusion": "success",
+      "sha": "46cf17809704a0ce2bdf84b6f82c48b75e100d6d"
+    },
+    {
+      "id": 45888464414,
+      "name": "Preflight legacy baseline",
+      "conclusion": "success",
+      "sha": "46cf17809704a0ce2bdf84b6f82c48b75e100d6d"
+    },
+    {
+      "id": 45888464604,
+      "name": "Candidate runtime contracts",
+      "conclusion": "success",
+      "sha": "46cf17809704a0ce2bdf84b6f82c48b75e100d6d"
+    }
+  ],
+  "baseline_regression_evidence_only": true,
+  "cases": {
+    "F01": {
+      "status": "NOT_RUN"
+    },
+    "F02": {
+      "status": "NOT_RUN"
+    },
+    "F03": {
+      "status": "NOT_RUN"
+    },
+    "F04": {
+      "status": "NOT_RUN"
+    },
+    "F05": {
+      "status": "NOT_RUN"
+    },
+    "F06": {
+      "status": "NOT_RUN"
+    },
+    "F07": {
+      "status": "NOT_RUN"
+    },
+    "F08": {
+      "status": "NOT_RUN"
+    },
+    "F09": {
+      "status": "NOT_RUN"
+    },
+    "F10": {
+      "status": "NOT_RUN"
+    },
+    "F11": {
+      "status": "NOT_RUN"
+    },
+    "F12": {
+      "status": "NOT_RUN"
+    },
+    "F13": {
+      "status": "NOT_RUN"
+    }
+  }
+}

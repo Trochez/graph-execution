@@ -1,0 +1,110 @@
+{
+  "plan_id": "PAX-GEXEC-FINAL-1",
+  "plan_sha256": "2b67422351e0cceb2ec2e2da45a5eba13df350c3beb95fddaa2dfa76339557ae",
+  "decision": "NO_GO",
+  "candidate_commit": "46cf17809704a0ce2bdf84b6f82c48b75e100d6d",
+  "candidate_commit_frozen_for_live_qualification": false,
+  "scope": "local macOS/Pax 0.74.0/isolated Python 3.12 projects",
+  "gates": {
+    "G0": "FAIL",
+    "G1": "NOT_RUN",
+    "G2": "NOT_RUN",
+    "G3": "NOT_RUN"
+  },
+  "mandatory_tests": {
+    "offline": "NOT_RUN",
+    "L01": "NOT_RUN",
+    "L02": "NOT_RUN",
+    "baseline_regressions": "PASS_ON_BASELINE_ONLY"
+  },
+  "task_status": {
+    "P01": "PARTIAL",
+    "P02": "BLOCKED",
+    "P03": "BLOCKED",
+    "P04": "NOT_RUN",
+    "P05": "GATE_FAILED",
+    "P06": "NOT_RUN",
+    "P07": "NOT_RUN",
+    "P08": "NOT_RUN",
+    "P09": "NOT_RUN",
+    "P10": "NOT_RUN",
+    "P11": "NOT_RUN",
+    "P12": "NOT_RUN",
+    "P13": "NOT_RUN",
+    "P14": "NOT_RUN",
+    "P15": "NOT_RUN",
+    "P16": "NOT_RUN",
+    "P17": "NOT_RUN",
+    "P18": "NOT_RUN",
+    "P19": "NOT_RUN",
+    "P20": "NOT_RUN",
+    "P21": "NOT_RUN",
+    "P22": "NOT_RUN",
+    "P23": "TERMINAL_DECISION_RECORDED"
+  },
+  "budget": {
+    "engineer_hours_used": null,
+    "live_runs_used": 0,
+    "within_caps": null,
+    "model_requests": 0,
+    "note": "No measured aggregate engineer-hour or role accounting; no budget-compliance certification."
+  },
+  "predicates": {
+    "prerequisites_pass": false,
+    "implementation_backlog_closed": false,
+    "frozen_candidate_sha_verified": false,
+    "offline_F01_to_F13_all_pass": false,
+    "shared_helper_and_runtime_regressions_pass_on_baseline": true,
+    "live_L01_pass": false,
+    "live_L02_pass": false,
+    "no_unresolved_effect_or_security_violation": null,
+    "all_budgets_respected": null,
+    "final_artifacts_complete": false
+  },
+  "verified_deliverables": [
+    "baseline GitHub ref and previous CI results",
+    "actual execution-environment preflight observations",
+    "terminal decision and evidence references"
+  ],
+  "unresolved_blockers": [
+    {
+      "id": "G0-D1",
+      "task": "P02",
+      "reason": "Execution environment is Linux x86_64; the required actual macOS host is not accessible. Docker executable and /var/run/docker.sock are absent; approved image digest, non-root isolation, resource enforcement, offline wheelhouse and cleanup cannot be verified."
+    },
+    {
+      "id": "G0-R1",
+      "task": "P03",
+      "reason": "Python 3.12, Pax CLI, Temporal CLI, temporalio, pydantic_ai, pydantic_ai_harness and pydantic_graph are unavailable in this execution environment. Loopback TCP connections to Temporal 7233 and OmniRoute 20128 were refused."
+    },
+    {
+      "id": "G0-R2",
+      "task": "P03",
+      "reason": "No approved provider credential is present in the current execution environment; exact live model inventory and current approval cannot be verified. No live provider request was made."
+    },
+    {
+      "id": "G0-S1",
+      "task": "P01",
+      "reason": "GitHub ref and CI identity verified through the authorized connector; direct Git checkout is unavailable because github.com DNS resolution failed from the execution environment. Clean actual-host checkout and locked installation not proven."
+    }
+  ],
+  "evidence_paths": [
+    "scope-lock.json",
+    "interface-lock.md",
+    "qualification/sandbox-preflight.json",
+    "qualification/runtime-preflight.json",
+    "qualification/offline-results.json",
+    "qualification/live-L01.json",
+    "qualification/live-L02.json",
+    "FINAL_REPORT.md"
+  ],
+  "limitations": [
+    "No actual macOS host access",
+    "No approved live model credential or local service access",
+    "No independent validation specialist execution",
+    "No new runtime code implemented or qualified",
+    "Prior operator-reported live executor PASS does not satisfy L01/L02"
+  ],
+  "execution_closed": true,
+  "additional_runs_authorized": false
+}

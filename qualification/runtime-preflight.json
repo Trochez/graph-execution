@@ -1,0 +1,32 @@
+{
+  "plan_id": "PAX-GEXEC-FINAL-1",
+  "task": "P03",
+  "result": "BLOCKED",
+  "environment": {
+    "python": "3.13.5",
+    "python_3_12_present": false,
+    "pax_executable_present": false,
+    "temporal_executable_present": false,
+    "temporalio_importable": false,
+    "pydantic_ai_importable": false,
+    "pydantic_ai_harness_importable": false,
+    "pydantic_graph_importable": false,
+    "git_present": true,
+    "uv_present": true,
+    "provider_key_present": false
+  },
+  "actual_checks": {
+    "loopback_temporal_7233": "CONNECTION_REFUSED",
+    "loopback_omniroute_20128": "CONNECTION_REFUSED",
+    "direct_github_dns": "FAILED",
+    "provider_inventory": "NOT_RUN",
+    "locked_install": "NOT_RUN",
+    "actual_pax_import": "NOT_RUN"
+  },
+  "model_calls": 0,
+  "blocker_ids": [
+    "G0-R1",
+    "G0-R2",
+    "G0-S1"
+  ]
+}
