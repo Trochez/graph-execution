@@ -5,6 +5,7 @@ on:
       - feat/pax-durable-multicli
     paths:
       - 'scripts/preflight_harness_peer.py'
+      - 'scripts/preflight_peer_workflow.py'
       - 'scripts/preflight_pax_bridge.py'
       - '.github/workflows/preflight-pax-peer.yml'
   workflow_dispatch:

@@ -14,6 +14,8 @@ import os
 import secrets
 import tempfile
 from datetime import timedelta
+from urllib.parse import urlsplit
+import traceback
 from importlib.metadata import version
 from pathlib import Path
 
@@ -22,11 +24,12 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import UsageLimits
 from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Skills
-from temporalio import activity, workflow
+from temporalio import activity
 from temporalio.client import Client
-from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, Worker
+
+from preflight_peer_workflow import PeerMailbox
 
 ROOT = Path(__file__).resolve().parent.parent
 EXPECTED = {"gexec", "critical-path-planner", "backlog-team-designer", "native-plan-executor"}
@@ -44,55 +47,6 @@ async def discover():
     return names
 
 
-@workflow.defn
-class PeerMailbox:
-    def __init__(self):
-        self.contract = None
-        self.acked = False
-        self.phase = "publisher"
-
-    @workflow.update
-    def publish(self, value: str) -> bool:
-        if self.phase != "publisher" or self.contract is not None:
-            return False
-        if not value.startswith("contract-") or len(value) != 33:
-            return False
-        self.contract = value
-        return True
-
-    @workflow.query
-    def receive(self) -> str | None:
-        return self.contract if self.phase == "consumer" else None
-
-    @workflow.update
-    def acknowledge(self, value: str) -> bool:
-        if self.phase != "consumer" or not self.contract or value != self.contract:
-            return False
-        if self.acked:
-            return False
-        self.acked = True
-        return True
-
-    @workflow.run
-    async def run(self, nonce: str) -> dict:
-        common = {
-            "start_to_close_timeout": timedelta(seconds=90),
-            "retry_policy": RetryPolicy(maximum_attempts=1),
-        }
-        a = await workflow.execute_activity("peer_turn", {"role": "publisher", "nonce": nonce},
-                                            result_type=dict, **common)
-        if not a["tool_called"] or self.contract != nonce:
-            raise RuntimeError("publisher did not publish")
-        self.phase = "consumer"
-        # Consumer assignment intentionally contains no nonce or publisher transcript.
-        b = await workflow.execute_activity("peer_turn", {"role": "consumer"},
-                                            result_type=dict, **common)
-        if not b["tool_called"] or not self.acked or b["output"] != nonce:
-            raise RuntimeError("consumer did not return the received contract")
-        self.phase = "done"
-        return {"publisher": a["role"], "consumer": b["role"], "peer_ack": True,
-                "consumer_verified": True, "agent_turns": 2,
-                "model_requests": a["requests"] + b["requests"]}
 
 
 class PeerActivities:
@@ -155,9 +109,19 @@ class PeerActivities:
                 "requests": usage.requests}
 
 
+def validate_live_config(model_id: str, base_url: str | None):
+    if ":" not in model_id or model_id.startswith(("chain:", "test:", "demo:")) or not model_id.split(":", 1)[1].strip() or "YOUR_" in model_id.upper():
+        raise ValueError("Supply an actual provider-qualified model ID, not a placeholder.")
+    if base_url:
+        url = urlsplit(base_url)
+        if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password or url.query or url.fragment or "YOUR_" in base_url.upper():
+            raise ValueError("Supply the actual HTTP(S) OpenAI-compatible base URL, without credentials or placeholders.")
+        if not model_id.startswith("openai:"):
+            raise ValueError("A custom base URL requires an openai: model ID.")
+
+
 def build_live_model(model_id: str, base_url: str | None, api_key: str | None):
-    if ":" not in model_id or model_id.startswith(("chain:", "test:", "demo:")):
-        raise ValueError("use one explicit provider-qualified real model ID")
+    validate_live_config(model_id, base_url)
     if base_url:
         if not model_id.startswith("openai:"):
             raise ValueError("for OpenAI-compatible base URL use openai:EXACT_MODEL_ID")
@@ -202,6 +166,11 @@ def main():
     args = p.parse_args()
     if args.base_url and not args.live_model:
         p.error("--base-url requires --live-model")
+    if args.live_model:
+        try:
+            validate_live_config(args.live_model, args.base_url)
+        except ValueError as exc:
+            p.error(str(exc))
     try:
         key = (os.environ.get("GEXEC_PROBE_API_KEY") or getpass.getpass("Provider API key (local only): ")
                if args.base_url else None)
@@ -210,8 +179,20 @@ def main():
         print(json.dumps(result, sort_keys=True))
         return 0
     except Exception as exc:
-        # Never dump provider exceptions, request headers, prompts or credentials.
-        print(json.dumps({"probe": "FAIL", "error_type": type(exc).__name__}))
+        # For live runs report only exception classes and code locations; never provider payloads.
+        if not args.live_model:
+            traceback.print_exc()
+        chain = []
+        current = exc
+        seen = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            frames = traceback.extract_tb(current.__traceback__)
+            chain.append({"type": type(current).__name__, "frames": [
+                {"file": Path(frame.filename).name, "function": frame.name, "line": frame.lineno}
+                for frame in frames[-5:]]})
+            current = current.__cause__ or current.__context__
+        print(json.dumps({"probe": "FAIL", "error_type": type(exc).__name__, "diagnostics": chain}))
         return 2
 
 
