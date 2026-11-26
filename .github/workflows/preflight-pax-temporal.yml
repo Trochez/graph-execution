@@ -1,0 +1,35 @@
+name: Preflight Pax and Temporal
+on:
+  push:
+    branches:
+      - feat/pax-durable-multicli
+    paths:
+      - 'scripts/preflight_graph_temporal.py'
+      - '.github/workflows/preflight-pax-temporal.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install candidate versions in a fresh environment
+        shell: bash
+        run: |
+          python3.12 -m venv /tmp/graph-preflight-venv
+          /tmp/graph-preflight-venv/bin/python -m pip install 'pydantic-ai-pax==0.74.0' 'temporalio==1.36.0' 'pydantic-ai-slim[temporal]'
+          /tmp/graph-preflight-venv/bin/python -m pip check
+          /tmp/graph-preflight-venv/bin/python -m pip freeze
+      - name: Inspect installed Pax and durable integration (no model calls)
+        shell: bash
+        run: |
+          timeout 20 /tmp/graph-preflight-venv/bin/pax --help
+          /tmp/graph-preflight-venv/bin/python -c 'from pydantic_ai.durable_exec.temporal import PydanticAIPlugin, TemporalDurability; from pydantic_ai_harness.coder import Coder; print("imports: TemporalDurability, PydanticAIPlugin, Coder OK")'
+      - name: Real local Temporal graph, restart, update, signal and replay
+        run: /tmp/graph-preflight-venv/bin/python scripts/preflight_graph_temporal.py
