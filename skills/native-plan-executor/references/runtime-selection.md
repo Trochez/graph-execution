@@ -46,3 +46,7 @@ The above is a shape, not an instruction to assume any capability. Record only o
 - Any unsupported or ambiguous capability needed by a mandatory team definition: report a **blocked** result with the missing tool/role/model control. Do not substitute simulated agents, CLI subprocesses, unapproved models or untracked coordination.
 
 Use one master (the current root agent) in all modes. The plan and team definition remain the source of truth; runtime adaptation changes *how* assignments are delivered, not *who* owns them or their acceptance criteria.
+
+## Pax durable candidate
+
+An actual in-process `gexec_runtime_info` tool returning the configured Pax workflow identity is positive bridge evidence; a shell binary, an environment variable, an imported package or a claim in a prompt is not. Require the prepared local bundle, current model approval, actual Temporal worker and authorized workspace. Record mode `pax-durable`, source hashes, limits and effective route if observable. Follow [pax-protocol.md](pax-protocol.md); do not spawn another Pax/Codex/Cline process or route native calls through shell. The trusted-local candidate does not establish arbitrary future host support, remote authentication or OS isolation. Unknown hosts and mandatory unsupported capabilities stay blocked. Existing native resolution is unchanged.

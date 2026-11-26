@@ -1,17 +1,17 @@
 ---
 name: native-plan-executor
-description: Implement a specified plan and team definition with native subagents from the active Codex or Cline CLI, preserving user-approved leaf-model routing and verification.
+description: Implement a specified plan and team definition with native subagents from the active Codex or Cline CLI or an explicitly configured Pax durable bridge, preserving user-approved leaf-model routing and verification.
 ---
 
 # Native Plan Executor
 
-Execute the supplied plan with the supplied team definition. The current host agent is the master: it owns dispatch, integration, final verification and reporting. Its **current native runtime** (Codex CLI or Cline CLI) executes subordinate work. Do not launch a different CLI to simulate a native subagent. Creating this skill does not itself authorize implementation of an unrelated plan.
+Execute the supplied plan with the supplied team definition. The current host agent is the master: it owns dispatch, integration, final verification and reporting. Its **current native runtime** (Codex CLI, Cline CLI or the configured Pax bridge) executes subordinate work. Do not launch a different CLI to simulate a native subagent. Creating this skill does not itself authorize implementation of an unrelated plan.
 
 ## Resolve active CLI runtime before model selection or delegation
 
-Follow [runtime selection](references/runtime-selection.md). Inspect the actual session's available native tool schemas and trusted host metadata. Select **Codex**, **Cline team**, or **Cline subagent** only when there is positive evidence; a binary on `PATH`, a project directory, or `CODEX_HOME`/`CLINE_*` variables alone cannot establish the active host. If tools are unavailable or ambiguous, ask for an explicit host selection and check its native capabilities; fail closed when required delegation is unavailable. Never silently create an external Codex or Cline process.
+Follow [runtime selection](references/runtime-selection.md). Inspect the actual session's available native tool schemas and trusted host metadata. Select **Codex**, **Cline team**, **Cline subagent**, or the experimental **Pax durable** mode only when there is positive evidence; a binary on `PATH`, a project directory, or `CODEX_HOME`/`CLINE_*` variables alone cannot establish the active host. If tools are unavailable or ambiguous, ask for an explicit host selection and check its native capabilities; fail closed when required delegation is unavailable. Never silently create an external Codex or Cline process.
 
-For Codex use [native-protocol.md](references/native-protocol.md); for Cline use [cline-protocol.md](references/cline-protocol.md). They share the same source plan, DAG, write ownership, verification and run-record requirements. The active host's live tool schema takes precedence over examples in either protocol.
+For Codex use [native-protocol.md](references/native-protocol.md); for Cline use [cline-protocol.md](references/cline-protocol.md); for a positively identified Pax bridge use [pax-protocol.md](references/pax-protocol.md) instead of the native-tool examples. The Pax branch uses its explicit operator-approved run bundle and does not call Codex/Cline tools. They share the same source plan, DAG, write ownership, verification and run-record requirements. The active host's live tool schema takes precedence over examples in either protocol.
 
 ## Initial leaf-model selection and approval
 
@@ -48,3 +48,7 @@ Dispatch ready tasks with exclusive write ownership and observable completion cr
 Persist a small master-owned execution record outside OMX runtime state, as described in the protocol. Track requested models, actual native identities, ownership, task status and verification evidence. Do not claim requested model routing proves an undisclosed effective model.
 
 Continue through the authorized completion unit—by default all tasks in the supplied plan—until implemented and verified, explicitly blocked, or stopped by the user. Run the relevant integration checks after child results; child success alone is not final proof. Report changed files, checks and results, completed/blocked tasks, team/model routing and remaining limits. Do not claim completion while any required task lacks evidence.
+
+## Pax durable execution branch (candidate)
+
+When the live `gexec_runtime_info` tool identifies the current configured Pax bridge, follow the Pax protocol exclusively for dispatch, messaging and verification. Resolve the model approval using the separate Pax policy; do not use the Codex or Cline policy file. The master and worker route are currently the same explicitly selected model; a team requiring a different lead/master model must block rather than silently remap. Use `gexec_start`, `gexec_status`, `gexec_proposal`, `gexec_review`, `gexec_verify`, and `gexec_finalize`. The workflow schedules only ready authorized assignments, reserves scopes until verification, and owns durable state. Inspect and approve proposals before integration. A completed worker turn is not a completed task. Do not apply effects or claim acceptance outside this process. The tool-based scope checks are not a general OS sandbox. Missing capabilities, uncertain writes or unverified prerequisites block dependent work. Other hosts retain their existing native protocols; future hosts require explicit qualification.

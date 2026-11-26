@@ -1,0 +1,80 @@
+{
+  "acknowledge_trusted_local_namespace": true,
+  "base_url": "http://localhost:20128/v1",
+  "model": "openai:REPLACE_WITH_APPROVED_MODEL",
+  "master": "M",
+  "roles": {
+    "M": "master",
+    "A": "worker",
+    "B": "worker",
+    "R": "reviewer"
+  },
+  "parents": {
+    "M": null,
+    "A": "M",
+    "B": "M",
+    "R": "M"
+  },
+  "capacity": 2,
+  "run_timeout": 1200,
+  "scopes": {
+    "T01": {
+      "writes": [
+        "a.txt"
+      ],
+      "reads": [],
+      "resources": [],
+      "timeout": 180,
+      "request_budget": 8
+    },
+    "T02": {
+      "writes": [
+        "b.txt"
+      ],
+      "reads": [],
+      "resources": [],
+      "timeout": 180,
+      "request_budget": 8
+    },
+    "T03": {
+      "writes": [],
+      "reads": [
+        "a.txt",
+        "b.txt"
+      ],
+      "resources": [],
+      "timeout": 180,
+      "request_budget": 8
+    }
+  },
+  "check_commands": {
+    "T01": [
+      [
+        "python3",
+        "-c",
+        "from pathlib import Path; assert Path('a.txt').read_text().strip() == 'contract-v1'"
+      ]
+    ],
+    "T02": [
+      [
+        "python3",
+        "-c",
+        "from pathlib import Path; assert Path('b.txt').read_text().strip() == 'contract-v1'"
+      ]
+    ],
+    "T03": [
+      [
+        "python3",
+        "-c",
+        "from pathlib import Path; assert Path('a.txt').read_text() == Path('b.txt').read_text()"
+      ]
+    ]
+  },
+  "final_checks": [
+    [
+      "python3",
+      "-c",
+      "from pathlib import Path; assert Path('a.txt').read_text().strip() == Path('b.txt').read_text().strip() == 'contract-v1'"
+    ]
+  ]
+}

@@ -38,3 +38,7 @@ Represent all dependency edges and fork/join branches. Topological waves express
 Write the separate Markdown backlog, structured tasks and calculator results according to the reference. Keep source plan unchanged and avoid overwriting existing output; choose a new sibling run directory when needed.
 
 Verify requirement coverage, task completion proofs, DAG validity, and complete representation of parallel task branches. Report artifact links, critical-path duration, estimate uncertainty and unresolved external gates. Do not mutate runtime state or launch implementation agents. A later explicit execution request belongs to a separate workflow.
+
+## Pax portability
+
+The planning contract and output names are unchanged. In an explicitly configured Pax bridge session, use the active stage's `gexec_stage_write` for `backlog.md` and `tasks.json`, then `gexec_stage_finish` to run the bundled deterministic DAG analyzer; inspect `dag-analysis.json` with `gexec_stage_read`. The master still verifies source coverage and semantic correctness. Use the ordinary helper command on other hosts. Record exact relative file scopes when known and required capabilities or external gates explicitly. Do not turn natural-language scopes into automatic write permission. Planning never launches a worker.

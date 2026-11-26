@@ -1,4 +1,4 @@
-# Graph Execution skills for Codex and Cline
+# Graph Execution skills for Codex, Cline and Pax (candidate)
 
 Graph Execution is a set of four installable agent skills for turning a Markdown implementation plan into a dependency-aware backlog, a graph-based team design, and an implementation carried out by the **active CLI's native subagents** (Codex or Cline). The executor is host-aware; it does not shell out to a second CLI.
 
@@ -18,6 +18,10 @@ critical-path-planner -> backlog-team-designer -> native-plan-executor
 ```
 
 The repository includes each constituent skill as a standalone folder so either supported CLI can discover and invoke it directly. `gexec` expects those three skills to be installed and validates their artifacts between stages.
+
+## Pax durable runtime (experimental)
+
+The feature branch includes a real Temporal-backed candidate runtime, scoped Pydantic AI/Harness worker tools and an explicit Pax custom-agent bridge. See [installation, use and limitations](docs/pax-installation.md) and [the Pax protocol](skills/native-plan-executor/references/pax-protocol.md). Native Codex/Cline paths remain unchanged and do not install Temporal. This is not a qualified release: live end-to-end host smoke and security/recovery gates remain open.
 
 ## Requirements
 

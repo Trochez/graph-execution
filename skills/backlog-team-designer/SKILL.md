@@ -45,3 +45,7 @@ Give every task one accountable execution owner. State integration, independent 
 Write the artifact bundle defined in the contract. Verify complete task coverage, preserved dependency direction, ownership, staffing arithmetic, capacity-safe schedules and source preservation. Report the recommended team, alternatives, graph evidence, uncertainty and artifact links.
 
 This skill produces a team definition only. Do not launch agents, execute tasks, alter the source backlog, or mutate team/goal runtime state. A separate explicit execution request selects the implementation workflow.
+
+## Pax portability
+
+Use the same team artifacts and original IDs. For the configured Pax bridge use `gexec_stage_write` for `team-definition.md`, `team-definition.json`, and `task-graph.json`, then `gexec_stage_finish` to run the original community helper and validate source DAG/ownership coverage. Inspect `graph-analysis.json`. The bridge's candidate supports scoped text proposals, bounded independent turns and explicit mailbox tools; it does not provide unrestricted shell execution or a proven OS sandbox. Plan the smallest feasible team and explicitly identify unsupported mandatory requirements, scope reservations and acceptance checks. The user approves exact paths and check commands separately before execution. Codex and Cline continue using the existing graph helper and native capability rules.
