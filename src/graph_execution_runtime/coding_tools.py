@@ -30,10 +30,10 @@ elif op=='delete':
     p.unlink(missing_ok=True)
 """
 
-def checks_in_sandbox(data,profile,commands):
+def checks_in_sandbox(data,profile,commands,*,final=False):
     with tempfile.TemporaryDirectory(prefix="gexec-check-") as d:
         materialize(data,d)
-        with Sandbox(d,profile) as s:
+        with Sandbox(d,profile,verifier=final) as s:
             results=[]
             if profile["wheels"]:
                 r=s.install(sorted(profile["wheels"]));results.append(r)

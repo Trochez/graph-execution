@@ -41,7 +41,7 @@ def command(argv, allowed):
 
 def validate_profile(p, root, *, verify_wheels=True):
     fields={"schema","workspace","image","wheelhouse","wheels","paths","commands","checks","final_checks","capacity","timeout","acknowledge","model","base_url","approval","skill_root"}
-    if not isinstance(p,dict) or set(p)!=fields or p["schema"]!=2 or p["acknowledge"]!="local-trusted-docker-offline":
+    if not isinstance(p,dict) or not fields<=set(p) or set(p)-fields-{"oracle","oracle_files"} or p["schema"]!=2 or p["acknowledge"]!="local-trusted-docker-offline":
         raise ValueError("invalid profile schema or approval")
     if Path(p["workspace"]).resolve()!=root.resolve():
         raise ValueError("profile belongs to another repository")
@@ -73,6 +73,16 @@ def validate_profile(p, root, *, verify_wheels=True):
             raise ValueError("wheel hash mismatch")
     if verify_wheels and {f.name for f in wheelhouse.iterdir()}!=set(p["wheels"]):
         raise ValueError("wheelhouse must contain only approved wheels")
+    if ("oracle" in p)!=("oracle_files" in p):raise ValueError("oracle path and inventory must be paired")
+    if "oracle" in p:
+        oracle=Path(p["oracle"]).resolve(strict=True)
+        if not oracle.is_dir() or oracle.is_relative_to(root.resolve()) or root.resolve().is_relative_to(oracle):raise ValueError("oracle must be outside project")
+        files=p["oracle_files"]
+        if not isinstance(files,dict) or not files or set(files)!={f.name for f in oracle.iterdir()}:raise ValueError("oracle inventory mismatch")
+        for name,checksum in files.items():
+            safe_path(name)
+            f=oracle/name
+            if "/" in name or not f.is_file() or f.is_symlink() or hash_file(f)!=checksum:raise ValueError("oracle hash mismatch")
     return p
 
 def load_profile(path, root):

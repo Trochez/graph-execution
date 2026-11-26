@@ -292,7 +292,7 @@ class Controller:
             from .gitstage import inventory
             st=stage_for(b);head=st.head()
             if not st.unchanged():raise PermissionError("original checkout changed")
-            receipts=compact_receipts(await asyncio.to_thread(checks_in_sandbox,inventory(st.root,head,st.profile),st.profile,b["final_checks"]))
+            receipts=compact_receipts(await asyncio.to_thread(checks_in_sandbox,inventory(st.root,head,st.profile),st.profile,b["final_checks"],final=True))
             if not st.unchanged() or st.head()!=head:raise PermissionError("checkout or staging ref changed during final verification")
         else:receipts=await run_checks(Path(b["workspace"]),b["final_checks"])
         result={"passed":bool(receipts) and all(r["exit_code"]==0 for r in receipts),"checks":receipts,"snapshot":s}

@@ -100,6 +100,12 @@ class Staging:
     def head(self):return git(self.root,"rev-parse",self.ref).decode().strip()
     def unchanged(self):return inspect(self.root)==self.baseline
     def publish(self,task,attempt,edits,verify,*,inputs=None):
+        import fcntl
+        self.journal.mkdir(parents=True,exist_ok=True)
+        with (self.journal/"publication.lock").open("a") as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            return self._publish(task,attempt,edits,verify,inputs=inputs)
+    def _publish(self,task,attempt,edits,verify,*,inputs=None):
         # Only called by the serialized, master-approved integration activity.
         self.journal.mkdir(parents=True,exist_ok=True)
         key=hashlib.sha256(f"{task['id']}:{attempt}".encode()).hexdigest()

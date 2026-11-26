@@ -22,8 +22,8 @@ def docker(argv, *, timeout=30, check=True):
     return subprocess.run(["docker",*argv],env=env,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,check=check)
 
 class Sandbox:
-    def __init__(self, root, profile):
-        self.root=Path(root).resolve(strict=True);self.profile=profile
+    def __init__(self, root, profile, *, verifier=False):
+        self.root=Path(root).resolve(strict=True);self.profile=profile;self.verifier=verifier
         self.name="gexec-"+uuid4().hex;self.receipts=[];self.closed=False;self.started=False
         self.remaining=30
         self.lock=threading.RLock()
@@ -35,12 +35,19 @@ class Sandbox:
         docker(["image","inspect",self.profile["image"]])
         self.started=True
         try:
+            oracle=[]
+            if self.verifier and "oracle" in self.profile:
+                path=Path(self.profile["oracle"]).resolve(strict=True)
+                if "," in str(path):raise ValueError("unsupported oracle mount")
+                for name,d in self.profile["oracle_files"].items():
+                    if hash_file(path/name)!=d:raise ValueError("oracle hash changed")
+                oracle=["--mount",f"type=bind,src={path},dst=/oracle,readonly"]
             docker(["run","--detach","--name",self.name,"--pull=never","--network=none","--read-only",
                 "--cap-drop=ALL","--security-opt=no-new-privileges","--pids-limit=64","--memory=512m","--cpus=1",
                 "--user",f"{os.getuid()}:{os.getgid()}","--tmpfs","/tmp:rw,noexec,nosuid,size=64m",
                 "--mount",f"type=bind,src={self.root},dst=/work",
                 "--mount",f"type=bind,src={Path(self.profile['wheelhouse']).resolve()},dst=/wheels,readonly",
-                "--workdir","/work","--env","HOME=/tmp","--env","PYTHONDONTWRITEBYTECODE=1",
+                *oracle,"--workdir","/work","--env","HOME=/tmp","--env","PYTHONDONTWRITEBYTECODE=1",
                 "--env","PYTHONPATH=/work/.gexec-deps:/work:/work/src",
                 "--entrypoint","python",self.profile["image"],"-c","import time; time.sleep(1800)"])
             return self
