@@ -1,0 +1,43 @@
+name: Preflight Harness peers and Pax bridge
+on:
+  push:
+    branches:
+      - feat/pax-durable-multicli
+    paths:
+      - 'scripts/preflight_harness_peer.py'
+      - 'scripts/preflight_pax_bridge.py'
+      - '.github/workflows/preflight-pax-peer.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        pax: ['0.74.0', '0.75.0']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install candidate SDKs (no account credentials)
+        run: |
+          python -m venv /tmp/peer-venv
+          /tmp/peer-venv/bin/python -m pip install "pydantic-ai-pax==${{ matrix.pax }}" 'pydantic-ai-slim[temporal]' 'temporalio==1.36.0'
+          /tmp/peer-venv/bin/python -m pip check
+      - name: Harness skills and mailbox probe with TestModel
+        run: /tmp/peer-venv/bin/python scripts/preflight_harness_peer.py
+      - name: Pax custom-agent tool bridge (no live model)
+        env:
+          PYTHON_DOTENV_DISABLED: '1'
+          GEXEC_PROBE_RECEIPT: /tmp/gexec-peer-receipt.json
+          PYTHONPATH: ${{ github.workspace }}/scripts
+          XDG_CONFIG_HOME: /tmp/gexec-pax-config
+        run: |
+          /tmp/peer-venv/bin/pax --agent preflight_pax_bridge:agent --request-limit 3 -p "Run the peer probe exactly once."
+          /tmp/peer-venv/bin/python -c 'import json; r=json.load(open("/tmp/gexec-peer-receipt.json")); assert r["probe"]=="PASS" and r["model_mode"]=="TestModel" and r["result"]["peer_ack"]; print(json.dumps(r))'

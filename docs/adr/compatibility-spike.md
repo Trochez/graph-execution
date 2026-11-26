@@ -36,3 +36,9 @@ Keep credentials and raw sensitive logs local. The collector only verifies basel
 - B06–B24: not started because required feasibility prerequisites remain unresolved. No changes to the four production skills or their current runtime selection/model policies; no merge.
 
 This branch is for inspection and continuation, not release. Do not approve the PR as an implementation of Pax support until the original gates pass.
+
+## macOS continuation (2026-11-26)
+
+Operator-reported Python 3.12.15 isolated installation and local Graph/Temporal spike PASS (same versions as Linux CI; replay/restart and duplicate update proven). Existing uv-managed Pax 0.75.0 supports `--agent`, `--model`, `--prompt`, and returned GEXEC_PAX_OK through its configured model. Its workspace was explicitly reported untrusted. A plain text answer is not tool capability proof. No credential, private path or effective model identity was retained.
+
+Added a narrowly scoped Harness Skills and Temporal peer probe, plus a custom Pax agent bridge probe; their CI tests use TestModel only. The live peer mode requires an explicitly approved provider/model; no provider secret is stored or printed. These are feasibility experiments, not a production adapter. They use separate Agent instances with the Harness Skills capability, no Coder shell/write tools, and a whole-turn Temporal activity boundary. Coder permission/checkpoint interoperability, authenticated production bridge, direct durable per-tool execution, stock Pax profile integration and native Codex/Cline smoke remain unverified. A TestModel result is not live host qualification. The gate stays NO_GO pending required live evidence.
