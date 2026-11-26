@@ -28,12 +28,12 @@ if planning is None and initial is None:
     raise ValueError("supply planning config or an approved run bundle")
 skill_root=Path((planning or initial)["skill_root"])
 base_url=(planning or initial)["base_url"]
-model_id=planning["model"] if planning else initial["spec"]["model"]
+model_id=planning["model"] if planning else initial["spec"].get("master_model",initial["spec"]["model"])
 pipeline=Pipeline(Path(planning["plan"]),Path(planning["run_dir"]),skill_root) if planning else None
 
 def execution_bundle():
     b=load_bundle(bundle_path)
-    if b["spec"]["model"]!=model_id or b["base_url"]!=base_url:
+    if b["spec"].get("master_model",b["spec"]["model"])!=model_id or b["base_url"]!=base_url:
         raise PermissionError("model or endpoint changed from explicit master route")
     if pipeline and b.get("pipeline")!=str(pipeline.run_dir):
         raise PermissionError("bundle does not match this pipeline")
@@ -108,7 +108,7 @@ def gexec_runtime_info() -> dict:
         return {"host":"pax","mode":"pax-durable","candidate":True,"planning":True,"execution_bundle":"not approved/prepared","model":model_id}
     spec=execution_bundle()["spec"]
     return {"host":"pax","mode":"pax-durable","candidate":True,"workflow_id":spec["workflow_id"],
-            "master":spec["master"],"tasks":spec["tasks"],"model":spec["model"],
+            "master":spec["master"],"tasks":spec["tasks"],"model":spec["model"],"master_model":model_id,
             "limits":["trusted local Temporal only","whole-turn activities","exact-path text proposals",
                       "no shell tools","operator-approved checks only"]}
 

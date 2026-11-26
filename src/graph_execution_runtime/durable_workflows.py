@@ -188,7 +188,7 @@ class GraphRun:
         self.transition(key, "assigned")
         attempt = s["attempt"]
         packet = {"parent": workflow.info().workflow_id, "task": self.spec["tasks"][key],
-                  "attempt": attempt, "model": self.spec["model"], "agents": list(self.spec["agents"]),
+                  "attempt": attempt, "model": self.spec.get("agent_models",{}).get(self.spec["tasks"][key]["owner"],self.spec["model"]), "agents": list(self.spec["agents"]),
                   "source_hashes": self.spec["source_hashes"], "repair_reason": s.get("repair_reason"),
                   "remaining_requests": self.spec["tasks"][key]["request_budget"] - s.get("used_requests",0)}
         self.transition(key, "in_progress")

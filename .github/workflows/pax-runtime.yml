@@ -31,4 +31,5 @@ jobs:
       - run: python tests/integration/pipeline_smoke.py
       - run: python tests/integration/controller_smoke.py
       - run: python tests/integration/bridge_import_smoke.py
+      - run: python tests/integration/cancel_smoke.py
       - run: python scripts/live_pax_runtime_smoke.py --help

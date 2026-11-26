@@ -59,7 +59,8 @@ class Activities:
     @activity.defn
     async def agent_turn(self, packet: dict) -> dict:
         task = self.authorize(packet)
-        if packet["model"] != self.approved_model:
+        expected=self.approved_spec.get("agent_models",{}).get(task["owner"],self.approved_model)
+        if packet["model"] != expected:
             raise PermissionError("model route not approved")
         handle = self.client.get_workflow_handle(packet["parent"])
         principal = {"task": task["id"], "sender": task["owner"], "attempt": packet["attempt"]}
@@ -142,7 +143,7 @@ class Activities:
                 return {"disposition": "blocked", "reason": "no authorized proposal", "summary": summary}
             return {"disposition": "submitted", "summary": summary,
                     "edits": [edits[k] for k in sorted(edits)],
-                    "requested_model": self.approved_model, "effective_model": None,
+                    "requested_model": expected, "effective_model": None,
                     "model_requests": result.usage.requests,
                     "input_tokens": result.usage.input_tokens, "output_tokens": result.usage.output_tokens,
                     "attempt": packet["attempt"]}

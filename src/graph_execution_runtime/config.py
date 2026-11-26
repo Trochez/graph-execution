@@ -84,8 +84,15 @@ def prepare(workflow_id: str, plan: Path, tasks_path: Path, team_path: Path, set
     model = settings["model"]
     if not isinstance(model, str) or not model.startswith("openai:") or not model[7:].strip() or "YOUR_" in model.upper():
         raise ValueError("candidate requires explicit OpenAI-compatible provider-qualified model")
+    master_model=settings.get("master_model",model)
+    if not isinstance(master_model,str) or not master_model.startswith("openai:") or not master_model[7:].strip() or "YOUR_" in master_model.upper():
+        raise ValueError("invalid master route")
+    if master_model!=model and settings.get("master_model_confirmation")!=master_model:
+        raise PermissionError("explicit master route confirmation required")
+    parents={a["parent"] for a in agents.values() if a["parent"] is not None}
+    agent_models={key:(master_model if key in parents or key==master else model) for key in agents}
     result = {"workflow_id": workflow_id, "tasks": tasks, "agents": agents, "master": master,
-            "capacity": capacity, "run_timeout": run_timeout, "model": model,
+            "capacity": capacity, "run_timeout": run_timeout, "model": model, "master_model":master_model, "agent_models":agent_models,
             "source_hashes": {"plan": fingerprint(plan), "tasks": fingerprint(tasks_path),
                               "team": fingerprint(team_path)}}
     result["spec_sha256"]=spec_digest(result)
@@ -105,5 +112,5 @@ def check_approval(spec: dict, approval: dict, base_url: str, available: list[st
     if (approval.get("model") != spec["model"] or approval.get("base_url") != base_url
             or approval.get("month") != date.today().strftime("%Y-%m")
             or not isinstance(approval.get("confirmation"), str) or not approval["confirmation"].strip()
-            or spec["model"][7:] not in available):
+            or spec["model"][7:] not in available or spec.get("master_model",spec["model"])[7:] not in available):
         raise PermissionError("current monthly model approval and exact advertised availability required")

@@ -34,7 +34,7 @@ printf "Exact model ID: "; read -r MODEL_ID
   --base-url "$BASE_URL" --model "openai:$MODEL_ID" --confirmation "openai:$MODEL_ID"
 ```
 
-Only approve a model you actually choose and that is advertised by the endpoint. If renewing, explicitly archive the old model-policy file before approving a replacement. No automatic fallback. Alias upstream identity may be unknown.
+The settings may optionally include master_model and master_model_confirmation (both the same exact provider-qualified master ID), on the same endpoint. A planning config's model is the actual master route. Only approve a model you actually choose and that is advertised by the endpoint. If renewing, explicitly archive the old model-policy file before approving a replacement. No automatic fallback. Alias upstream identity may be unknown.
 
 ## Complete sequential gexec workflow
 
@@ -46,7 +46,7 @@ Create a private JSON planning config outside the target worktree with keys: pla
 
 In Pax request: "Use gexec on the configured plan. Complete the first two skills and pause at the operator approval gate." Review the resulting planner and team artifacts. The stage manifest uses the legacy gate and original artifact names. The master must still verify semantic requirements, staffing and review independence.
 
-Prepare a settings JSON file following [the example](../examples/pax/settings.example.json), adapting the actual task IDs, role/parent mappings, scopes and test commands. Set exact existing-parent relative paths; do not put credentials into files, messages or settings. The checks are trusted project commands explicitly chosen by the operator and may execute repository code. Review them first. If the plan needs an unsupported capability (shell-based worker implementation, binary changes, different role models, OS sandbox, unresolved gate), do not approve that task.
+Prepare a settings JSON file following [the example](../examples/pax/settings.example.json), adapting the actual task IDs, role/parent mappings, scopes and test commands. Set exact existing-parent relative paths; do not put credentials into files, messages or settings. The checks are trusted project commands explicitly chosen by the operator and may execute repository code. Review them first. If the plan needs an unsupported capability (shell-based worker implementation, binary changes, unsupported provider/role overrides, OS sandbox, unresolved gate), do not approve that task.
 
 From the checkout (replace all paths with actual paths), use:
 
@@ -76,7 +76,7 @@ Record files: journal/records/execution.json, events.jsonl, final-checks.json. T
 
 Do not merge the feature branch as a release until real-host qualification. To stop testing, cancel the run, inspect final status, stop its worker and remove the isolated virtualenv only after preserving evidence. Keep Temporal data and journals until reconciliation is complete. Do not delete user changes or reset the target worktree. Native paths and approval files remain untouched.
 
-This candidate does not support arbitrary project tools, unrestricted shell, delete/rename/binary edits, remote Temporal, per-role distinct model routes, or OS-enforced worker isolation. It uses bounded whole-turn checkpoints and explicit proposals rather than automatic re-execution of uncertain effects. See the [compatibility ADR](adr/compatibility-spike.md).
+This candidate does not support arbitrary project tools, unrestricted shell, delete/rename/binary edits, remote Temporal, arbitrary per-role/provider routes, or OS-enforced worker isolation. It uses bounded whole-turn checkpoints and explicit proposals rather than automatic re-execution of uncertain effects. See the [compatibility ADR](adr/compatibility-spike.md).
 
 ## Disposable real Pax executor smoke
 

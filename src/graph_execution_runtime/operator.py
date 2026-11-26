@@ -226,9 +226,9 @@ async def run_worker(bundle_path: Path, address: str):
     spec = b["spec"]
     client = await Client.connect(local_address(address))
     # The process and queue are scoped to exactly one locally authorized bundle.
-    model=model_factory(b["base_url"],key,spec["model"])
+    routes={name:model_factory(b["base_url"],key,name) for name in set(spec.get("agent_models",{}).values())|{spec["model"]}}
     acts = Activities(client, Path(b["workspace"]), Path(b["journal"]), spec["model"],
-                      lambda task: model,
+                      lambda task: routes[spec.get("agent_models",{}).get(task["owner"],spec["model"])],
                       Path(b["skill_root"]), approved_spec=spec, bundle_path=bundle_path)
     async with Worker(client, task_queue=spec["workflow_id"], workflows=[GraphRun,AgentSession],
                       activities=[acts.agent_turn,acts.apply_proposal,acts.graph_ready]):
