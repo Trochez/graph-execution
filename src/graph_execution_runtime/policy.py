@@ -40,19 +40,20 @@ def command(argv, allowed):
     return argv
 
 def validate_profile(p, root, *, verify_wheels=True):
-    fields={"schema","workspace","image","wheelhouse","wheels","paths","commands","checks","capacity","timeout","acknowledge","model","base_url","approval","skill_root"}
+    fields={"schema","workspace","image","wheelhouse","wheels","paths","commands","checks","final_checks","capacity","timeout","acknowledge","model","base_url","approval","skill_root"}
     if not isinstance(p,dict) or set(p)!=fields or p["schema"]!=2 or p["acknowledge"]!="local-trusted-docker-offline":
         raise ValueError("invalid profile schema or approval")
     if Path(p["workspace"]).resolve()!=root.resolve():
         raise ValueError("profile belongs to another repository")
     if not re.fullmatch(r"[A-Za-z0-9./:_-]+@sha256:[0-9a-f]{64}",p["image"]):
         raise ValueError("immutable image reference required")
-    for k in ("paths","commands","checks"):
+    for k in ("paths","commands","checks","final_checks"):
         if not isinstance(p[k],list) or not p[k]:raise ValueError("empty policy field "+k)
     if len(p["paths"])>30 or len(set(p["paths"]))!=len(p["paths"]):raise ValueError("path policy bounds")
     for path in p["paths"]:safe_path(path)
     if not set(p["commands"])<= {"python","pytest"}:raise ValueError("unknown command family")
-    for argv in p["checks"]:command(argv,p["commands"])
+    for argv in p["checks"]+p["final_checks"]:command(argv,p["commands"])
+    if len(p["checks"])>16 or len(p["final_checks"])>8:raise ValueError("verification command budget")
     if type(p["capacity"])!=int or not 1<=p["capacity"]<=3 or type(p["timeout"])!=int or not 60<=p["timeout"]<=1200:
         raise ValueError("run budget outside supported limits")
     wheelhouse=Path(p["wheelhouse"]).resolve(strict=True)
@@ -85,19 +86,21 @@ def compile_settings(profile, tasks, team, extension):
     if not 1<=len(rows)<=16 or len(rows)!=len(ids) or set(extension["scopes"])!=ids or set(extension["roles"])!=agents or set(extension["parents"])!=agents:
         raise ValueError("scope or role coverage")
     scopes={}
+    per_task=min(12,60//len(rows))
     for t in rows:
         k=t["id"];s=extension["scopes"][k]
         if set(s)!={"reads","writes","resources","checks"}:raise ValueError("invalid task scope schema")
         for path in s["reads"]+s["writes"]:
             if not within(safe_path(path),profile["paths"]):raise PermissionError("scope escalation")
-        if not isinstance(s["checks"],list) or not s["checks"]:raise ValueError("independent task checks required")
+        if not isinstance(s["reads"],list) or not isinstance(s["writes"],list) or not isinstance(s["resources"],list) or any(type(x)!=str or len(x)>80 for x in s["resources"]):raise ValueError("invalid scope types")
+        if not isinstance(s["checks"],list) or not 1<=len(s["checks"])<=4:raise ValueError("independent task checks required")
         for argv in s["checks"]:
             command(argv,profile["commands"])
             # Only explicitly operator-approved verification argv, not model-authored host code.
             if argv not in profile["checks"]:raise PermissionError("unapproved independent check")
         if t.get("human_gates") or set(t.get("required_capabilities",[]))-{"text_read","text_proposal","peer_message","master_verify","review","sandbox","command","offline_install","text_edit"}:
             raise ValueError("unsupported requirement")
-        scopes[k]={"reads":s["reads"],"writes":s["writes"],"resources":s["resources"],"timeout":min(300,profile["timeout"]),"request_budget":12}
+        scopes[k]={"reads":s["reads"],"writes":s["writes"],"resources":s["resources"],"timeout":min(300,profile["timeout"]),"request_budget":per_task}
     return {"master":extension["master"],"roles":extension["roles"],"parents":extension["parents"],
             "scopes":scopes,"capacity":profile["capacity"],"run_timeout":profile["timeout"],"model":profile["model"],
-            "sandbox_mode":True,"check_commands":{k:extension["scopes"][k]["checks"] for k in ids},"final_checks":profile["checks"]}
+            "sandbox_mode":True,"check_commands":{k:extension["scopes"][k]["checks"] for k in ids},"final_checks":profile["final_checks"]}

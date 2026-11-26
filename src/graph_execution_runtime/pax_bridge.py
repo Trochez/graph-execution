@@ -80,6 +80,10 @@ def gexec_plan_source() -> str:
 @agent.tool_plain
 def gexec_stage_begin(stage: str) -> dict:
     """Start planner or team designer after the previous gate."""
+    if autonomous:
+        p=planning_pipeline()
+        s=p.read()
+        if s["active_stage"]==stage:return s
     return planning_pipeline().begin(stage)
 
 @agent.tool_plain
@@ -165,7 +169,9 @@ def gexec_read_input(task_id: str, path: str) -> str:
 @agent.tool_plain
 async def gexec_review(task_id: str, action: str, evidence: str) -> dict:
     """Approve integration (apply), request one focused repair, or block a proposal."""
-    return await (await controller()).review(task_id,action,evidence)
+    c=await controller()
+    if autonomous and action=="apply":raise ValueError("use gexec_review_and_verify after inspecting proposal")
+    return await c.review(task_id,action,evidence)
 
 
 @agent.tool_plain
@@ -190,7 +196,11 @@ async def gexec_cancel(reason: str) -> dict:
 @agent.tool_plain
 async def gexec_proposal(task_id: str) -> dict | None:
     """Inspect the full proposed file changes for one task before review."""
-    return await (await controller()).proposal(task_id)
+    c=await controller();p=await c.proposal(task_id)
+    if autonomous and p is not None:
+        from .pipeline import atomic_json
+        atomic_json(Path(planning["run_dir"])/"inspections"/(task_id+".json"),{"attempt":p["attempt"],"proposal_sha256":p["proposal_sha256"]})
+    return p
 
 @agent.tool_plain
 async def gexec_inbox() -> list[dict]:
@@ -217,7 +227,12 @@ async def gexec_wait(revision: int) -> dict:
 @agent.tool_plain
 async def gexec_review_and_verify(task_id: str, attempt: int, evidence: str) -> dict:
     """Explicitly approve the inspected exact task attempt, wait for integration and run actual approved checks. No automatic approval."""
-    return await (await controller()).review_and_verify(task_id,attempt,evidence)
+    c=await controller()
+    if autonomous:
+        inspection=load_json(Path(planning["run_dir"])/"inspections"/(task_id+".json"))
+        if inspection["attempt"]!=attempt:raise ValueError("stale or uninspected attempt")
+        return await c.review_and_verify(task_id,attempt,evidence,inspection["proposal_sha256"])
+    return await c.review_and_verify(task_id,attempt,evidence)
 
 
 @agent.tool_plain

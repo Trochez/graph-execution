@@ -217,10 +217,11 @@ class Controller:
     async def review(self, task, action, evidence):
         load_bundle(self.bundle_path)
         state = (await self.status())["tasks"][task]
+        if self.spec.get("runtime_version")==2 and action=="apply":raise ValueError("digest-bound review required")
         return await self.handle.execute_update(GraphRun.review, {"task": task, "attempt": state["attempt"],
                                                     "action": action, "evidence": evidence})
 
-    async def review_and_verify(self, task, attempt, evidence):
+    async def review_and_verify(self, task, attempt, evidence, proposal_sha256=None):
         """Explicit approval of a previously inspected attempt; never automatic approval."""
         if not isinstance(evidence,str) or not evidence.strip() or len(evidence)>2048:
             raise ValueError("review evidence required")
@@ -230,7 +231,7 @@ class Controller:
             return {"accepted":False,"reason":"stale attempt"}
         if state["status"]=="verifying":
             r=await self.handle.execute_update(GraphRun.review,{"task":task,"attempt":attempt,
-                "action":"apply","evidence":evidence})
+                "action":"apply","evidence":evidence,**({"proposal_sha256":proposal_sha256} if self.spec.get("runtime_version")==2 else {})})
             if not r["accepted"]:return r
         elif state["status"] not in ("applying","applied","done"):
             return {"accepted":False,"reason":"task is not ready for integration"}
@@ -295,7 +296,7 @@ class Controller:
             receipts=compact_receipts(await asyncio.to_thread(checks_in_sandbox,inventory(st.root,head,st.profile),st.profile,b["final_checks"]))
             if not st.unchanged() or st.head()!=head:raise PermissionError("checkout or staging ref changed during final verification")
         else:receipts=await run_checks(Path(b["workspace"]),b["final_checks"])
-        result={"passed":all(r["exit_code"]==0 for r in receipts),"checks":receipts,"snapshot":s}
+        result={"passed":bool(receipts) and all(r["exit_code"]==0 for r in receipts),"checks":receipts,"snapshot":s}
         record=self.project(s)
         atomic_json(record/"final-checks.json",{"passed":result["passed"],"checks":receipts,**({"commit":head} if self.spec.get("runtime_version")==2 else {})})
         if result["passed"] and b.get("pipeline"):
