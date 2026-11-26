@@ -39,6 +39,17 @@ def load_bundle(path: Path):
     journal = Path(bundle["journal"]).resolve()
     if journal.is_relative_to(root):
         raise ValueError("journal must be outside execution workspace")
+    if spec.get("runtime_version")==2:
+        from .policy import digest,load_profile,compile_settings
+        from .config import fingerprint
+        p=load_profile(Path(bundle["profile_path"]),root)
+        if digest(p)!=spec["policy_sha256"] or p!=bundle["profile"] or fingerprint(Path(bundle["original_plan"]))!=spec["source_hashes"]["plan"]:
+            raise PermissionError("policy or source plan changed")
+        ext=load_json(Path(bundle["pipeline"])/"execution-spec.json")
+        if digest(ext)!=bundle["extension_sha256"]:raise PermissionError("execution extension changed")
+        settings=compile_settings(p,load_json(Path(bundle["sources"]["tasks"])),load_json(Path(bundle["sources"]["team"])),ext)
+        if settings["check_commands"]!=bundle["check_commands"] or settings["final_checks"]!=bundle["final_checks"]:
+            raise PermissionError("verification policy changed")
     if bundle.get("pipeline"):
         Pipeline(Path(bundle["sources"]["plan"]),Path(bundle["pipeline"]),Path(bundle["skill_root"])).bind(Path(bundle["sources"]["tasks"]),Path(bundle["sources"]["team"]))
     return bundle
@@ -96,11 +107,18 @@ async def discover_models(base_url, key):
         await client.close()
 
 
-def model_factory(base_url, key, model_id):
+def model_factory(base_url, key, model_id, budget=None):
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
-    return OpenAIChatModel(model_id[7:], provider=OpenAIProvider(
-        openai_client=provider_client(base_url, key)))
+    if budget is not None:
+        import httpx
+        from openai import AsyncOpenAI
+        validate_endpoint(base_url)
+        if not key:raise ValueError("approved local key required")
+        client=AsyncOpenAI(base_url=base_url,api_key=key,max_retries=0,timeout=45,
+            http_client=httpx.AsyncClient(timeout=45,event_hooks={"request":[budget.on_request]}))
+    else:client=provider_client(base_url,key)
+    return OpenAIChatModel(model_id[7:], provider=OpenAIProvider(openai_client=client))
 
 
 async def approved_bundle(path: Path, key: str):
@@ -236,6 +254,15 @@ class Controller:
         state = (await self.status())["tasks"][task]
         if state["status"] != "applied":
             raise ValueError("task is not applied")
+        if self.spec.get("runtime_version")==2:
+            from .coding_tools import stage_for
+            from .gitstage import inventory,sha as staged_sha,git
+            stage=stage_for(b);record=state["integration"];receipts=record["checks"]
+            current=await asyncio.to_thread(inventory,stage.root,stage.head(),stage.profile)
+            passed=stage.unchanged() and bool(receipts) and all(r["exit_code"]==0 for r in receipts) and all(staged_sha(current.get(f["path"]))==f["sha256"] for f in record["files"])
+            evidence=json.dumps({"commit":record["new"],"independent_checks_passed":passed,"receipt_hash":sha(json.dumps(receipts,sort_keys=True).encode())})
+            response=await self.handle.execute_update(GraphRun.verify,{"task":task,"attempt":state["attempt"],"passed":passed,"evidence":evidence})
+            return {"decision":response,"checks":receipts}
         root = Path(b["workspace"])
         files = state["integration"]["files"]
         if any(snapshot(root, f["path"])[0] != f["sha256"] for f in files):
@@ -260,16 +287,23 @@ class Controller:
         s=await self.status()
         if not s["finished"] or s["cancelled"] or any(t["status"]!="done" for t in s["tasks"].values()):
             raise ValueError("all tasks must finish verified")
-        receipts=await run_checks(Path(b["workspace"]),b["final_checks"])
+        if self.spec.get("runtime_version")==2:
+            from .coding_tools import stage_for,checks_in_sandbox,compact_receipts
+            from .gitstage import inventory
+            st=stage_for(b);head=st.head()
+            if not st.unchanged():raise PermissionError("original checkout changed")
+            receipts=compact_receipts(await asyncio.to_thread(checks_in_sandbox,inventory(st.root,head,st.profile),st.profile,b["final_checks"]))
+            if not st.unchanged() or st.head()!=head:raise PermissionError("checkout or staging ref changed during final verification")
+        else:receipts=await run_checks(Path(b["workspace"]),b["final_checks"])
         result={"passed":all(r["exit_code"]==0 for r in receipts),"checks":receipts,"snapshot":s}
         record=self.project(s)
-        atomic_json(record/"final-checks.json",{"passed":result["passed"],"checks":receipts})
+        atomic_json(record/"final-checks.json",{"passed":result["passed"],"checks":receipts,**({"commit":head} if self.spec.get("runtime_version")==2 else {})})
         if result["passed"] and b.get("pipeline"):
             Pipeline(Path(b["sources"]["plan"]),Path(b["pipeline"]),Path(b["skill_root"])).finish_executor([record/"execution.json",record/"events.jsonl",record/"final-checks.json"],"Actual configured final checks exited zero; all tasks verified in Temporal")
         return result
 
 
-async def run_worker(bundle_path: Path, address: str):
+async def run_worker(bundle_path: Path, address: str, ready_event=None):
     from .activities import Activities
     key = os.environ.get("GEXEC_PROBE_API_KEY","")
     b = await approved_bundle(bundle_path, key)
@@ -277,10 +311,17 @@ async def run_worker(bundle_path: Path, address: str):
     client = await Client.connect(local_address(address))
     # The process and queue are scoped to exactly one locally authorized bundle.
     routes={name:model_factory(b["base_url"],key,name) for name in set(spec.get("agent_models",{}).values())|{spec["model"]}}
+    def route(task):
+        name=spec.get("agent_models",{}).get(task["owner"],spec["model"])
+        if spec.get("runtime_version")==2:
+            from .budget import Budget
+            return model_factory(b["base_url"],key,name,Budget(b["budget_db"],task["id"],task["request_budget"]))
+        return routes[name]
     acts = Activities(client, Path(b["workspace"]), Path(b["journal"]), spec["model"],
-                      lambda task: routes[spec.get("agent_models",{}).get(task["owner"],spec["model"])],
+                      route,
                       Path(b["skill_root"]), approved_spec=spec, bundle_path=bundle_path)
     async with Worker(client, task_queue=spec["workflow_id"], workflows=[GraphRun,AgentSession],
                       activities=[acts.agent_turn,acts.apply_proposal,acts.graph_ready]):
-        print(json.dumps({"ready":True,"workflow_id":spec["workflow_id"],"queue":spec["workflow_id"]}),flush=True)
+        if ready_event is not None:ready_event.set()
+        else:print(json.dumps({"ready":True,"workflow_id":spec["workflow_id"],"queue":spec["workflow_id"]}),flush=True)
         await asyncio.Future()

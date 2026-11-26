@@ -62,6 +62,8 @@ class CodingSession:
         self.seen={};self.last_signature=None;self.repeated=0;self.finished=False
         self.record=Path(bundle["journal"])/"attempts"/(task["id"]+"-"+str(attempt)+".json")
         self.inputs={p:sha(self.before.get(p)) for p in sorted(set(task["reads"]+task["writes"]))}
+        from .budget import Budget
+        self.budget=Budget(bundle["budget_db"],task["id"],task["request_budget"])
     def start(self):
         self.sandbox.__enter__()
         atomic_json(self.record,{"status":"started","container":self.sandbox.name,"attempt":self.attempt,"base":self.base_revision})
@@ -69,6 +71,7 @@ class CodingSession:
         safe_path(path)
         if path not in (self.task["writes"] if write else self.task["reads"]+self.task["writes"]):raise PermissionError("path outside assignment")
     def file_op(self,op,path,value=None):
+        self.budget.tool()
         self.check(path,op!="read")
         if value is not None and len(value.encode())>65536:raise ValueError("file size")
         r=self.sandbox._run(["python","-c",FILE_OP,json.dumps([op,path,value])],10)
@@ -80,8 +83,10 @@ class CodingSession:
         if key==self.last_signature:self.repeated+=1
         else:self.last_signature=key;self.repeated=1
         if self.repeated>=3:raise RuntimeError("NO_PROGRESS_LOOP")
-    def install(self,wheels):return self.sandbox.install(wheels)
+    def install(self,wheels):
+        self.budget.tool();return self.sandbox.install(wheels)
     def run(self,argv,timeout):
+        self.budget.tool()
         r=self.sandbox.run(argv,timeout)
         self.repeat(json.dumps([argv,r["exit_code"],r["output_sha256"]]))
         return r
