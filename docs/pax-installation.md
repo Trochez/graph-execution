@@ -84,3 +84,6 @@ After installing the package and starting your existing local Temporal dev serve
 
 
 If the real master exits with a nonzero code, the smoke receipt remains FAIL even when some tasks are done. The runner reports safe log classifications (diagnostic signals, not proven causes) and attempts bounded cancellation/drain. Diagnose a previous fixture without any provider calls: `python -m graph_execution_runtime.diagnostics --root .. --workflow-id YOUR_WORKFLOW_ID`. Do not paste raw `pax-local.log` or credentials. The master uses compact state responses and a combined explicitly approved review/verification tool to reduce repeated model calls; the request limit is not silently increased.
+
+
+Startup regression guard: the live runner parses runtime modules and checks Temporal health before provider inventory; it preserves the Pax exit and log classifications even if a workflow was never created. Use `python -m graph_execution_runtime.diagnostics --root .. --latest` for the newest fixture, including older fixtures missing a receipt. The `--check-only` live-runner flag performs source and Temporal health checks without provider calls (pass the normal CLI arguments; the output directory is not created). A `NOT_FOUND` from describe after a Pax exit means the workflow was not found, not proof of an unavailable Temporal server.

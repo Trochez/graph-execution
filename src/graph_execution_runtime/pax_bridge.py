@@ -185,7 +185,7 @@ async def gexec_ack(message_id: str) -> bool:
 @agent.tool_plain
 async def gexec_wait(revision: int) -> dict:
     """Wait briefly for new durable state instead of repeatedly polling the model."""
-    return compact_status(await (await controller()).wait(revision)
+    return compact_status(await (await controller()).wait(revision))
 
 
 @agent.tool_plain
