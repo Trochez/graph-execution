@@ -110,6 +110,25 @@ async def approved_bundle(path: Path, key: str):
     return b
 
 
+def compact_status(snap: dict) -> dict:
+    """Bound model-facing status; full audit record stays in local projection."""
+    tasks={}
+    for key,state in snap["tasks"].items():
+        task={"status":state["status"],"attempt":state["attempt"]}
+        if state["status"] in ("blocked","reconciliation_required","cancelled"):
+            task["reason"]=(state.get("reason") or "")[:512]
+        if state["status"]=="verifying":
+            task["edit_paths"]=(state.get("result") or {}).get("edit_paths",[])
+            task["next"]="inspect proposal then explicitly review and verify"
+        elif state["status"]=="applied":
+            task["next"]="verify"
+        tasks[key]=task
+    return {"workflow_id":snap["workflow_id"],"revision":snap["revision"],
+            "finished":snap["finished"],"cancelled":snap["cancelled"],"tasks":tasks,
+            "pending_messages":sum(m["status"]=="ACCEPTED" for m in snap["messages"]),
+            "next":"finalize" if snap["finished"] and not snap["cancelled"] and all(t["status"]=="done" for t in tasks.values()) else None}
+
+
 class Controller:
     def __init__(self, client, bundle_path: Path):
         self.client = client
@@ -156,9 +175,11 @@ class Controller:
         return record
 
     async def wait(self, revision):
-        for _ in range(10):
+        # Coalesce intermediate scheduling events; return for actionable states.
+        for _ in range(20):
             snap=await self.status()
-            if snap["revision"]!=revision or snap["finished"]:return snap
+            if snap["finished"] or snap["cancelled"] or any(s["status"] in ("verifying","applied") for s in snap["tasks"].values()):return snap
+            if any(m["recipient"]==self.spec["master"] and m["status"]=="ACCEPTED" for m in snap["messages"]):return snap
             await asyncio.sleep(1)
         return snap
 
@@ -180,6 +201,35 @@ class Controller:
         state = (await self.status())["tasks"][task]
         return await self.handle.execute_update(GraphRun.review, {"task": task, "attempt": state["attempt"],
                                                     "action": action, "evidence": evidence})
+
+    async def review_and_verify(self, task, attempt, evidence):
+        """Explicit approval of a previously inspected attempt; never automatic approval."""
+        if not isinstance(evidence,str) or not evidence.strip() or len(evidence)>2048:
+            raise ValueError("review evidence required")
+        load_bundle(self.bundle_path)
+        state=(await self.status())["tasks"][task]
+        if state["attempt"]!=attempt:
+            return {"accepted":False,"reason":"stale attempt"}
+        if state["status"]=="verifying":
+            r=await self.handle.execute_update(GraphRun.review,{"task":task,"attempt":attempt,
+                "action":"apply","evidence":evidence})
+            if not r["accepted"]:return r
+        elif state["status"] not in ("applying","applied","done"):
+            return {"accepted":False,"reason":"task is not ready for integration"}
+        for _ in range(20):
+            snap=await self.status()
+            state=snap["tasks"][task]
+            if state["attempt"]!=attempt or snap["cancelled"]:
+                return {"accepted":False,"status":state["status"],"reason":"attempt changed or cancelled"}
+            if state["status"]=="done":
+                return {"accepted":True,"status":"done","already_verified":True}
+            if state["status"]=="applied":
+                r=await self.verify(task)
+                return {"accepted":True,"verification":r,"status":(await self.status())["tasks"][task]["status"]}
+            if state["status"]!="applying":
+                return {"accepted":False,"status":state["status"],"reason":state.get("reason")}
+            await asyncio.sleep(0.5)
+        return {"accepted":True,"status":"applying","next":"wait for durable integration; verify only after applied"}
 
     async def verify(self, task):
         b = load_bundle(self.bundle_path)

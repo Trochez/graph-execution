@@ -15,7 +15,7 @@ from pydantic_ai_harness import Skills
 from pydantic_ai.workspaces import LocalWorkspaceBackend
 from temporalio.client import Client
 
-from .operator import Controller, load_bundle, local_address, model_factory
+from .operator import Controller, load_bundle, local_address, model_factory, compact_status
 from .pipeline import Pipeline
 from .config import load_json
 from .workspace import snapshot
@@ -116,13 +116,13 @@ def gexec_runtime_info() -> dict:
 @agent.tool_plain
 async def gexec_start() -> dict:
     """Start or attach to the already operator-approved graph."""
-    return await (await controller()).start()
+    return compact_status(await (await controller()).start())
 
 
 @agent.tool_plain
 async def gexec_status() -> dict:
     """Inspect bounded durable task summaries, message metadata and events."""
-    return await (await controller()).status()
+    return compact_status(await (await controller()).status())
 
 
 @agent.tool_plain
@@ -151,7 +151,8 @@ async def gexec_verify(task_id: str) -> dict:
 @agent.tool_plain
 async def gexec_finalize() -> dict:
     """Run the approved final integrated checks only after all tasks are verified."""
-    return await (await controller()).finalize()
+    result=await (await controller()).finalize()
+    return {"passed":result["passed"],"checks":result["checks"],"status":compact_status(result["snapshot"])}
 
 
 @agent.tool_plain
@@ -184,4 +185,10 @@ async def gexec_ack(message_id: str) -> bool:
 @agent.tool_plain
 async def gexec_wait(revision: int) -> dict:
     """Wait briefly for new durable state instead of repeatedly polling the model."""
-    return await (await controller()).wait(revision)
+    return compact_status(await (await controller()).wait(revision)
+
+
+@agent.tool_plain
+async def gexec_review_and_verify(task_id: str, attempt: int, evidence: str) -> dict:
+    """Explicitly approve the inspected exact task attempt, wait for integration and run actual approved checks. No automatic approval."""
+    return await (await controller()).review_and_verify(task_id,attempt,evidence)

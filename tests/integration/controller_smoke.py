@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 from graph_execution_runtime.config import prepare
-from graph_execution_runtime.operator import Controller,load_bundle
+from graph_execution_runtime.operator import Controller,load_bundle,compact_status
 from graph_execution_runtime.activities import Activities
 from graph_execution_runtime.durable_workflows import GraphRun,AgentSession
 from temporalio.testing import WorkflowEnvironment
@@ -46,7 +46,15 @@ async def main():
                         s=await c.status();t=s["tasks"]["T"]
                         if t["status"]=="verifying":
                             assert (await c.proposal("T"))["edits"][0]["content"]=="validated"
-                            assert (await c.review("T","apply","reviewed fixture"))["accepted"]
+                            brief=compact_status(s)
+                            assert "events" not in brief and brief["tasks"]["T"]["next"]
+                            stale=await c.review_and_verify("T",t["attempt"]+1,"stale fixture")
+                            assert not stale["accepted"] and not (root/"a.txt").exists()
+                            r=await c.review_and_verify("T",t["attempt"],"reviewed fixture")
+                            assert r["accepted"] and r["status"]=="done",r
+                            assert r["verification"]["checks"][0]["exit_code"]==0
+                            repeat=await c.review_and_verify("T",t["attempt"],"same approval")
+                            assert repeat["already_verified"]
                         elif t["status"]=="applied":
                             r=await c.verify("T");assert r["checks"][0]["exit_code"]==0
                         elif s["finished"]:break
@@ -59,7 +67,7 @@ async def main():
         try:load_bundle(bundle)
         except ValueError:pass
         else:raise AssertionError("stale source accepted")
-    print(json.dumps({"probe":"PASS","controller":True,"actual_check":True,"records":True,"stale_source":True}))
+    print(json.dumps({"probe":"PASS","controller":True,"actual_check":True,"records":True,"stale_source":True,"compact_master":True,"stale_attempt_rejected":True,"combined_review_verify":True}))
 
 if __name__=="__main__":
     asyncio.run(main())
