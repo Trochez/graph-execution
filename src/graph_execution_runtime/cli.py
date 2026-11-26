@@ -78,6 +78,7 @@ async def execute(args):
     controller=Controller(client,args.bundle)
     if args.command=="start": return await controller.start()
     if args.command=="status": return await controller.status()
+    if args.command=="proposal": return await controller.proposal(args.task)
     if args.command=="review": return await controller.review(args.task,args.action,args.evidence)
     if args.command=="verify": return await controller.verify(args.task)
     if args.command=="cancel": return await controller.stop(args.reason)
@@ -99,9 +100,9 @@ def main():
     m.add_argument("--approval",type=Path,default=approval_path());m.add_argument("--run-id")
     mode=m.add_mutually_exclusive_group(required=True);mode.add_argument("--pipeline",type=Path);mode.add_argument("--standalone",action="store_true")
     s.add_parser("doctor")
-    for command in ("worker","start","status","review","verify","cancel","finalize"):
+    for command in ("worker","start","status","proposal","review","verify","cancel","finalize"):
         m=s.add_parser(command);m.add_argument("--bundle",required=True,type=Path)
-        if command in ("review","verify"):m.add_argument("--task",required=True)
+        if command in ("proposal","review","verify"):m.add_argument("--task",required=True)
         if command=="review":
             m.add_argument("--action",choices=("apply","repair","block"),required=True)
             m.add_argument("--evidence",required=True)

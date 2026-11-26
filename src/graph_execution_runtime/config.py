@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date
+import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -18,7 +19,13 @@ def fingerprint(path: Path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def spec_digest(spec: dict) -> str:
+    return hashlib.sha256(json.dumps({k:v for k,v in spec.items() if k!="spec_sha256"},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+
+
 def prepare(workflow_id: str, plan: Path, tasks_path: Path, team_path: Path, settings: dict) -> dict:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}",workflow_id):
+        raise ValueError("invalid workflow ID")
     tasks_doc, team = load_json(tasks_path), load_json(team_path)
     rows = tasks_doc["tasks"]
     roster = team["agents"]
@@ -47,12 +54,15 @@ def prepare(workflow_id: str, plan: Path, tasks_path: Path, team_path: Path, set
     tasks = {}
     for t in rows:
         k = t["id"]
+        if not isinstance(k,str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}",k):
+            raise ValueError("invalid task ID")
         if k in tasks:
             raise ValueError("duplicate task")
         scope = settings["scopes"][k]
         # Exact paths are explicitly supplied by the operator. Never interpret
         # natural-language write_scope as filesystem permission.
-        if scope.get("unresolved_gates") or scope.get("requires_shell") or scope.get("requires_os_sandbox"):
+        supported={"text_read","text_proposal","peer_message","master_verify","review"}
+        if set(t.get("required_capabilities",[]))-supported or t.get("human_gates") or scope.get("unresolved_gates") or scope.get("requires_shell") or scope.get("requires_os_sandbox"):
             raise ValueError("task has unsupported or unresolved mandatory capability")
         checks = t["verification"]
         if isinstance(checks, str):
@@ -74,10 +84,12 @@ def prepare(workflow_id: str, plan: Path, tasks_path: Path, team_path: Path, set
     model = settings["model"]
     if not isinstance(model, str) or not model.startswith("openai:") or not model[7:].strip() or "YOUR_" in model.upper():
         raise ValueError("candidate requires explicit OpenAI-compatible provider-qualified model")
-    return {"workflow_id": workflow_id, "tasks": tasks, "agents": agents, "master": master,
+    result = {"workflow_id": workflow_id, "tasks": tasks, "agents": agents, "master": master,
             "capacity": capacity, "run_timeout": run_timeout, "model": model,
             "source_hashes": {"plan": fingerprint(plan), "tasks": fingerprint(tasks_path),
                               "team": fingerprint(team_path)}}
+    result["spec_sha256"]=spec_digest(result)
+    return result
 
 
 def validate_endpoint(base_url: str):

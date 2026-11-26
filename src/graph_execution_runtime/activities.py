@@ -20,7 +20,8 @@ from .scheduler import ready
 
 class Activities:
     def __init__(self, client: Client, root: Path, journal: Path, approved_model: str,
-                 model_factory, skill_root: Path | None = None, approved_spec: dict | None = None):
+                 model_factory, skill_root: Path | None = None, approved_spec: dict | None = None,
+                 bundle_path: Path | None = None):
         self.client = client
         self.root = root.resolve(strict=True)
         self.journal = journal
@@ -28,6 +29,7 @@ class Activities:
         self.model_factory = model_factory
         self.skill_root = skill_root
         self.approved_spec = approved_spec
+        self.bundle_path = bundle_path
 
     @activity.defn
     async def graph_ready(self, data: dict) -> list[str]:
@@ -43,6 +45,10 @@ class Activities:
     def authorize(self, packet: dict):
         if self.approved_spec is None:
             raise PermissionError("worker requires a local approved run specification")
+        if self.bundle_path is not None:
+            from .operator import load_bundle
+            if load_bundle(self.bundle_path)["spec"] != self.approved_spec:
+                raise PermissionError("local approved bundle changed")
         task = packet["task"]
         if (packet["parent"] != self.approved_spec["workflow_id"] or
                 self.approved_spec["tasks"].get(task["id"]) != task or

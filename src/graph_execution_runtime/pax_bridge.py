@@ -179,3 +179,9 @@ async def gexec_message(recipient: str, text: str, message_key: str, kind: str =
 async def gexec_ack(message_id: str) -> bool:
     """Acknowledge a processed message addressed to this master."""
     return await (await controller()).ack(message_id)
+
+
+@agent.tool_plain
+async def gexec_wait(revision: int) -> dict:
+    """Wait briefly for new durable state instead of repeatedly polling the model."""
+    return await (await controller()).wait(revision)

@@ -52,7 +52,7 @@ class GraphRun:
                 "events": self.events, "revision": self.revision,
                 "cancelled": self.cancelled, "finished": self.finished,
                 "source_hashes": self.spec.get("source_hashes", {}),
-                "model": self.spec.get("model")}
+                "model": self.spec.get("model"), "spec_sha256":self.spec.get("spec_sha256")}
 
     @workflow.query
     def proposal(self, task: str) -> dict | None:

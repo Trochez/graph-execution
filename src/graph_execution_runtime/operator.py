@@ -14,7 +14,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.worker import Worker
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from .config import check_approval, fingerprint, load_json, validate_endpoint
+from .config import check_approval, fingerprint, load_json, validate_endpoint, spec_digest
 from .durable_workflows import GraphRun, AgentSession
 from .workspace import snapshot, sha
 from .pipeline import Pipeline, atomic_json
@@ -28,6 +28,10 @@ def local_address(address):
 def load_bundle(path: Path):
     bundle = load_json(path)
     spec = bundle["spec"]
+    if spec.get("spec_sha256") != spec_digest(spec):
+        raise ValueError("run spec integrity mismatch")
+    if set(bundle["sources"])!=set(spec["source_hashes"]):
+        raise ValueError("source inventory mismatch")
     for name, filename in bundle["sources"].items():
         if fingerprint(Path(filename)) != spec["source_hashes"][name]:
             raise ValueError("approved source changed: " + name)
@@ -128,12 +132,12 @@ class Controller:
                 id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE)
         except WorkflowAlreadyStartedError:
             snap = await self.status()
-            if snap["source_hashes"] != self.spec["source_hashes"] or snap["model"] != self.spec["model"]:
+            if snap["spec_sha256"] != self.spec["spec_sha256"]:
                 raise ValueError("existing workflow belongs to different inputs")
         return await self.status()
 
     async def status(self):
-        snap=await self.handle.query(GraphRun.snapshot)
+        snap=await asyncio.wait_for(self.handle.query(GraphRun.snapshot),timeout=20)
         self.project(snap)
         return snap
 
@@ -150,6 +154,13 @@ class Controller:
         finally:
             if os.path.exists(tmp):os.unlink(tmp)
         return record
+
+    async def wait(self, revision):
+        for _ in range(10):
+            snap=await self.status()
+            if snap["revision"]!=revision or snap["finished"]:return snap
+            await asyncio.sleep(1)
+        return snap
 
     async def proposal(self, task):
         return await self.handle.query(GraphRun.proposal, task)
@@ -215,9 +226,10 @@ async def run_worker(bundle_path: Path, address: str):
     spec = b["spec"]
     client = await Client.connect(local_address(address))
     # The process and queue are scoped to exactly one locally authorized bundle.
+    model=model_factory(b["base_url"],key,spec["model"])
     acts = Activities(client, Path(b["workspace"]), Path(b["journal"]), spec["model"],
-                      lambda task: model_factory(b["base_url"],key,spec["model"]),
-                      Path(b["skill_root"]), approved_spec=spec)
+                      lambda task: model,
+                      Path(b["skill_root"]), approved_spec=spec, bundle_path=bundle_path)
     async with Worker(client, task_queue=spec["workflow_id"], workflows=[GraphRun,AgentSession],
                       activities=[acts.agent_turn,acts.apply_proposal,acts.graph_ready]):
         print(json.dumps({"ready":True,"workflow_id":spec["workflow_id"],"queue":spec["workflow_id"]}),flush=True)
