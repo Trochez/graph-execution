@@ -22,7 +22,7 @@ PLAN="""# Implement order totals CLI
 
 Fix the existing quantity validation bug: zero or negative quantity must raise ValueError. Keep valid integer quantities working.
 Create a new directory order_cli containing a JSON CLI module run by python -m order_cli. It must accept two integer arguments, quantity and unit price in cents, and print deterministic JSON containing quantity, unit_price_cents, total_cents, and contract_version. Invalid input must exit nonzero. Use gexec_fixture_units.cents for the total, and add the exact approved dependency gexec-fixture-units==1.0.0 to requirements.txt.
-The validation worker must choose a nonempty contract version string in orderlib/validation.py (CONTRACT_VERSION). The CLI worker must obtain the agreed interface/version through an actual peer HANDOFF and acknowledge it, then use that contract. Do not write the validation worker's paths from the CLI task. Both workers should begin by running relevant real tests before modifying files. They can work independently and exchange the contract; the final integration must use the shared implementation.
+The validation worker must choose a nonempty contract version string in orderlib/validation.py (CONTRACT_VERSION). The CLI worker must obtain the agreed interface/version through an actual peer HANDOFF and acknowledge it, then use that contract. Do not write the validation worker's paths from the CLI task. Both workers should begin by running relevant real tests before modifying files. The validation worker must run the original quantity test, observe its failure, repair and rerun it. The CLI worker must explicitly call install_dependencies with the approved wheel and test its implementation. They can work independently and exchange the contract; the final integration must use the shared implementation.
 Remove obsolete.txt as an authorized deletion. Use an independent read-only reviewer after implementation and integration. Run the approved independent checks; do not weaken or edit the existing tests.
 Acceptance: quantity validation passes, CLI valid totals and invalid input behavior pass, offline dependency is used, old file is absent, source remains deterministic, final checks pass. The original branch must not be changed.
 """
@@ -64,7 +64,7 @@ def main():
     check2=["python","-c","import ast; from pathlib import Path; ast.parse(Path('order_cli/__main__.py').read_text()); import gexec_fixture_units; assert gexec_fixture_units.__version__=='1.0.0'"]
     check3=["python","-c","from pathlib import Path; assert not Path('obsolete.txt').exists()"]
     profile={"schema":2,"workspace":str(root),"image":a.image,"wheelhouse":str(wheels),"wheels":{name:hash_file(wheels/name)},
-             "paths":["orderlib","order_cli","tests","requirements.txt","obsolete.txt","pyproject.toml"],"commands":["python"],"checks":[check1,check2,check3],
+             "paths":["orderlib","order_cli","tests","requirements.txt","obsolete.txt","pyproject.toml"],"write_paths":["orderlib","order_cli","requirements.txt","obsolete.txt","pyproject.toml"],"commands":["python"],"checks":[check1,check2,check3],
              "final_checks":[check1,["python","/oracle/verify.py"]],"capacity":2,"timeout":1200,"acknowledge":"local-trusted-docker-offline",
              "model":a.model,"base_url":a.base_url,"approval":str(a.approval.resolve()),"skill_root":str(Path(__file__).resolve().parents[1]),
              "oracle":str(oracle),"oracle_files":{"verify.py":hash_file(oracle/"verify.py")}}

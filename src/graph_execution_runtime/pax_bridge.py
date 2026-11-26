@@ -124,7 +124,7 @@ def gexec_runtime_info() -> dict:
     """Trusted in-process candidate runtime identity and authorized task graph."""
     if master_budget:master_budget.tool()
     if not bundle_path.exists():
-        return {"host":"pax","mode":"pax-durable","candidate":True,"planning":True,"execution_bundle":"not approved/prepared","model":model_id}
+        return {"host":"pax","mode":"pax-durable-autonomous" if autonomous else "pax-durable","candidate":True,"planning":True,"execution_bundle":"not prepared","model":model_id}
     spec=execution_bundle()["spec"]
     if autonomous:return {"host":"pax","mode":"pax-durable-autonomous","workflow_id":spec["workflow_id"],"tasks":spec["tasks"],"master":spec["master"],"model":spec["model"],"limits":["offline container Python commands","exact approved path writes","master-approved Git CAS publication"]}
     return {"host":"pax","mode":"pax-durable","candidate":True,"workflow_id":spec["workflow_id"],
@@ -261,7 +261,7 @@ def gexec_policy()->dict:
     if not autonomous:raise ValueError("autonomous mode only")
     master_budget.tool()
     p=planning["profile"]
-    return {"paths":p["paths"],"commands":p["commands"],"checks":p["checks"],"wheels":sorted(p["wheels"]),
+    return {"paths":p["paths"],"write_paths":p.get("write_paths",p["paths"]),"commands":p["commands"],"checks":p["checks"],"wheels":sorted(p["wheels"]),
             "extension_schema":{"master":"agent ID","roles":{"agent ID":"master|worker|reviewer|lead"},
             "parents":{"agent ID":"parent ID or null"},"scopes":{"task ID":{"reads":["exact relative path"],"writes":["exact relative path"],
             "resources":["resource"],"checks":[["approved argv"]]}}}}

@@ -116,7 +116,7 @@ async def execute(args):
                 "When all tasks are done and workflow finished, call gexec_finalize. Never claim completion without actual checks. "
                 "Use small tasks with disjoint writes where possible, require peer communication when the plan requires it, "
                 "and reserve an independent read-only reviewer. Do not manually create a settings file.")
-        async with asyncio.timeout(max(1,p["timeout"]-45)):
+        async with asyncio.timeout(max(1,p["timeout"]-90)):
             for generation in (1,2):
                 result["stage"]="master_execution"
                 limit=40 if generation==1 else 20

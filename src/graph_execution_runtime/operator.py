@@ -262,6 +262,9 @@ class Controller:
             passed=stage.unchanged() and bool(receipts) and all(r["exit_code"]==0 for r in receipts) and all(staged_sha(current.get(f["path"]))==f["sha256"] for f in record["files"])
             evidence=json.dumps({"commit":record["new"],"independent_checks_passed":passed,"receipt_hash":sha(json.dumps(receipts,sort_keys=True).encode())})
             response=await self.handle.execute_update(GraphRun.verify,{"task":task,"attempt":state["attempt"],"passed":passed,"evidence":evidence})
+            if passed and response.get("accepted") and os.environ.get("GEXEC_QUALIFICATION_FAULT_CONTROL"):
+                from .faults import barrier
+                await asyncio.to_thread(barrier,"master",self.spec["workflow_id"],{"pid":os.getpid(),"task":task,"commit":record["new"]})
             return {"decision":response,"checks":receipts}
         root = Path(b["workspace"])
         files = state["integration"]["files"]

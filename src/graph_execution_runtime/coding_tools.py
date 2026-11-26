@@ -68,6 +68,14 @@ class CodingSession:
         atomic_json(self.record,{"status":"starting","container":self.sandbox.name,"attempt":self.attempt,"base":self.base_revision})
         self.sandbox.__enter__()
         atomic_json(self.record,{"status":"started","container":self.sandbox.name,"attempt":self.attempt,"base":self.base_revision})
+        if self.attempt==1:
+            import os
+            if os.environ.get("GEXEC_QUALIFICATION_FAULT_CONTROL"):
+                from .faults import barrier
+                check=self.sandbox.run(["python","-c","import os; assert os.getuid()!=0"])
+                if check["exit_code"]!=0:raise RuntimeError("fault probe command failed")
+                barrier("worker",self.bundle["spec"]["workflow_id"],{"container":self.sandbox.name,"task":self.task["id"],"attempt":1})
+                self.sandbox.run(["python","-c","print('container alive')"])
     def check(self,path,write=False):
         safe_path(path)
         if path not in (self.task["writes"] if write else self.task["reads"]+self.task["writes"]):raise PermissionError("path outside assignment")

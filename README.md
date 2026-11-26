@@ -90,3 +90,7 @@ skills/
   backlog-team-designer/
   native-plan-executor/
 ```
+
+### Pax autonomous candidate
+
+The v2 `gexec run --plan PATH --workspace PATH` entry point uses the approved project profile and a dedicated local Docker/Temporal runtime. See [local installation and qualification](docs/pax-autonomous.md). The full release is not qualified until actual local evidence passes; the restricted v1 executor remains supported on this branch.

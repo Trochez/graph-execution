@@ -41,7 +41,7 @@ def command(argv, allowed):
 
 def validate_profile(p, root, *, verify_wheels=True):
     fields={"schema","workspace","image","wheelhouse","wheels","paths","commands","checks","final_checks","capacity","timeout","acknowledge","model","base_url","approval","skill_root"}
-    if not isinstance(p,dict) or not fields<=set(p) or set(p)-fields-{"oracle","oracle_files"} or p["schema"]!=2 or p["acknowledge"]!="local-trusted-docker-offline":
+    if not isinstance(p,dict) or not fields<=set(p) or set(p)-fields-{"oracle","oracle_files","write_paths"} or p["schema"]!=2 or p["acknowledge"]!="local-trusted-docker-offline":
         raise ValueError("invalid profile schema or approval")
     if Path(p["workspace"]).resolve()!=root.resolve():
         raise ValueError("profile belongs to another repository")
@@ -51,6 +51,8 @@ def validate_profile(p, root, *, verify_wheels=True):
         if not isinstance(p[k],list) or not p[k]:raise ValueError("empty policy field "+k)
     if len(p["paths"])>30 or len(set(p["paths"]))!=len(p["paths"]):raise ValueError("path policy bounds")
     for path in p["paths"]:safe_path(path)
+    if "write_paths" in p:
+        if not isinstance(p["write_paths"],list) or any(not within(safe_path(x),p["paths"]) for x in p["write_paths"]):raise ValueError("invalid write policy")
     from .config import validate_endpoint
     validate_endpoint(p["base_url"])
     if not p["model"].startswith("openai:") or not p["model"][7:].strip():raise ValueError("provider-qualified route required")
@@ -107,6 +109,8 @@ def compile_settings(profile, tasks, team, extension):
         if set(s)!={"reads","writes","resources","checks"}:raise ValueError("invalid task scope schema")
         for path in s["reads"]+s["writes"]:
             if not within(safe_path(path),profile["paths"]):raise PermissionError("scope escalation")
+        for path in s["writes"]:
+            if not within(path,profile.get("write_paths",profile["paths"])):raise PermissionError("write scope escalation")
         if not isinstance(s["reads"],list) or not isinstance(s["writes"],list) or not isinstance(s["resources"],list) or any(type(x)!=str or len(x)>80 for x in s["resources"]):raise ValueError("invalid scope types")
         if not isinstance(s["checks"],list) or not 1<=len(s["checks"])<=4:raise ValueError("independent task checks required")
         for argv in s["checks"]:

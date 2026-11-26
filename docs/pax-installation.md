@@ -87,3 +87,7 @@ If the real master exits with a nonzero code, the smoke receipt remains FAIL eve
 
 
 Startup regression guard: the live runner parses runtime modules and checks Temporal health before provider inventory; it preserves the Pax exit and log classifications even if a workflow was never created. Use `python -m graph_execution_runtime.diagnostics --root .. --latest` for the newest fixture, including older fixtures missing a receipt. The `--check-only` live-runner flag performs source and Temporal health checks without provider calls (pass the normal CLI arguments; the output directory is not created). A `NOT_FOUND` from describe after a Pax exit means the workflow was not found, not proof of an unavailable Temporal server.
+
+## Autonomous v2 candidate
+
+See [Pax autonomous operator guide](pax-autonomous.md) for the one-time project profile and single-command run, local Docker tests and live qualification scenarios. The earlier manual bundle instructions apply to restricted v1 only.

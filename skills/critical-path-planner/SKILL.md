@@ -42,3 +42,5 @@ Verify requirement coverage, task completion proofs, DAG validity, and complete 
 ## Pax portability
 
 The planning contract and output names are unchanged. In an explicitly configured Pax bridge session, use the active stage's `gexec_stage_write` for `backlog.md` and `tasks.json`, then `gexec_stage_finish` to run the bundled deterministic DAG analyzer; inspect `dag-analysis.json` with `gexec_stage_read`. The master still verifies source coverage and semantic correctness. Use the ordinary helper command on other hosts. Record exact relative file scopes when known and required capabilities or external gates explicitly. Do not turn natural-language scopes into automatic write permission. Planning never launches a worker.
+
+For autonomous Pax, load this exact skill with `gexec_load_skill`. Use the approved inventory and policy to choose bounded exact task scopes, disjoint work where possible, and independent checks. The later execution extension must preserve the source DAG; policy validation cannot be bypassed.
