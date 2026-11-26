@@ -122,6 +122,7 @@ def gexec_planning_read(path: str) -> str:
 @agent.tool_plain
 def gexec_runtime_info() -> dict:
     """Trusted in-process candidate runtime identity and authorized task graph."""
+    if master_budget:master_budget.tool()
     if not bundle_path.exists():
         return {"host":"pax","mode":"pax-durable","candidate":True,"planning":True,"execution_bundle":"not approved/prepared","model":model_id}
     spec=execution_bundle()["spec"]
@@ -158,6 +159,7 @@ def gexec_read_input(task_id: str, path: str) -> str:
     if path not in task["reads"]+task["writes"]:
         return "DENIED"
     if autonomous:
+        master_budget.tool()
         from .coding_tools import stage_for
         from .gitstage import inventory
         st=stage_for(bundle);data=inventory(st.root,st.head(),st.profile)

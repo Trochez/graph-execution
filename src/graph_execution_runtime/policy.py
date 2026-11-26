@@ -51,6 +51,11 @@ def validate_profile(p, root, *, verify_wheels=True):
         if not isinstance(p[k],list) or not p[k]:raise ValueError("empty policy field "+k)
     if len(p["paths"])>30 or len(set(p["paths"]))!=len(p["paths"]):raise ValueError("path policy bounds")
     for path in p["paths"]:safe_path(path)
+    from .config import validate_endpoint
+    validate_endpoint(p["base_url"])
+    if not p["model"].startswith("openai:") or not p["model"][7:].strip():raise ValueError("provider-qualified route required")
+    if not Path(p["skill_root"]).is_absolute() or not (Path(p["skill_root"])/"skills/gexec/SKILL.md").is_file():raise ValueError("installed skill root required")
+    if not Path(p["approval"]).is_absolute():raise ValueError("absolute approval path required")
     if not set(p["commands"])<= {"python","pytest"}:raise ValueError("unknown command family")
     for argv in p["checks"]+p["final_checks"]:command(argv,p["commands"])
     if len(p["checks"])>16 or len(p["final_checks"])>8:raise ValueError("verification command budget")

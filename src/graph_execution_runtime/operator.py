@@ -41,7 +41,6 @@ def load_bundle(path: Path):
         raise ValueError("journal must be outside execution workspace")
     if spec.get("runtime_version")==2:
         from .policy import digest,load_profile,compile_settings
-        from .config import fingerprint
         p=load_profile(Path(bundle["profile_path"]),root)
         if digest(p)!=spec["policy_sha256"] or p!=bundle["profile"] or fingerprint(Path(bundle["original_plan"]))!=spec["source_hashes"]["plan"]:
             raise PermissionError("policy or source plan changed")

@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from uuid import uuid4
@@ -25,6 +26,7 @@ class Sandbox:
         self.root=Path(root).resolve(strict=True);self.profile=profile
         self.name="gexec-"+uuid4().hex;self.receipts=[];self.closed=False;self.started=False
         self.remaining=30
+        self.lock=threading.RLock()
     def __enter__(self):
         # No network, host home, Git metadata, provider credentials or Docker socket.
         # Only private disposable scratch and approved offline wheelhouse mounted.
@@ -46,6 +48,8 @@ class Sandbox:
             self.close()
             raise
     def _run(self, argv, timeout):
+        with self.lock:return self._run_locked(argv,timeout)
+    def _run_locked(self, argv, timeout):
         if self.closed:raise SandboxInterrupted("container already stopped")
         if self.remaining<=0:raise RuntimeError("command budget exhausted")
         self.remaining-=1
@@ -103,6 +107,8 @@ class Sandbox:
         # Direct wheel paths, no dependency discovery or package indexes.
         return self._run(["python","-m","pip","install","--no-index","--no-deps","--no-cache-dir","--target","/work/.gexec-deps",*["/wheels/"+w for w in wheels]],60)
     def close(self):
+        with self.lock:return self._close_locked()
+    def _close_locked(self):
         if self.closed:return
         if self.started:
             docker(["rm","-f",self.name],check=False)

@@ -112,6 +112,7 @@ class Activities:
         async def send_message(recipient: str, text: str, message_key: str, kind: str = "HANDOFF", correlation_id: str | None = None) -> str:
             """Send a bounded message to a defined peer or master; reuse the key on retry."""
             nonlocal sent
+            if coding:coding.budget.tool()
             if not message_key or len(message_key) > 64 or sent >= 16:
                 return "DENIED: message budget"
             mid = hashlib.sha256(f"{packet['parent']}:{task['id']}:{packet['attempt']}:{message_key}".encode()).hexdigest()
@@ -122,12 +123,14 @@ class Activities:
         @agent.tool_plain
         async def receive_messages() -> str:
             """Return pending messages. Explicitly acknowledge processed message IDs."""
+            if coding:coding.budget.tool()
             messages = await handle.execute_update(GraphRun.inbox, principal)
             return json.dumps(messages)
 
         @agent.tool_plain
         async def wait_messages() -> str:
             """Wait at most 20 seconds for a peer message; no indefinite loop."""
+            if coding:coding.budget.tool()
             for _ in range(20):
                 messages = await handle.execute_update(GraphRun.inbox, principal)
                 if messages:
@@ -138,6 +141,7 @@ class Activities:
         @agent.tool_plain
         async def acknowledge_message(message_id: str) -> bool:
             """Acknowledge a received peer message after processing it."""
+            if coding:coding.budget.tool()
             return await handle.execute_update(GraphRun.ack, {**principal, "id": message_id})
 
         repair = packet.get("repair_reason")

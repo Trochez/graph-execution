@@ -182,7 +182,8 @@ async def execute(args):
         except Exception as exc:
             result.update(decision="NO_GO",cleanup_error=type(exc).__name__)
         result["master_restarts"]=restart
-        result["budget"]=budget.summary()
+        try:result["budget"]=budget.summary()
+        except Exception as exc:result.update(decision="NO_GO",budget_error=type(exc).__name__)
         result["records"]=str(run)
         if stage:result["implementation_ref"]=stage.ref
         terminal(run,result)

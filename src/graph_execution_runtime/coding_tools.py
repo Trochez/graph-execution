@@ -96,13 +96,14 @@ class CodingSession:
         @agent.tool_plain
         def list_paths()->list[str]:
             """List exact authorized input and output paths."""
+            self.budget.tool()
             return sorted(set(self.task["reads"]+self.task["writes"]))
         @agent.tool_plain
         async def search_text(query:str)->list[dict]:
             """Search bounded authorized text files."""
             if not query or len(query)>256:return []
             hits=[]
-            for p in list_paths()[:20]:
+            for p in sorted(set(self.task["reads"]+self.task["writes"]))[:20]:
                 s=await asyncio.to_thread(self.file_op,"read",p)
                 if s:
                     hits.extend({"path":p,"line":i+1,"text":line[:300]} for i,line in enumerate(s.splitlines()) if query in line)
