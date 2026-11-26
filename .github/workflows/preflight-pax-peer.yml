@@ -6,6 +6,7 @@ on:
     paths:
       - 'scripts/preflight_harness_peer.py'
       - 'scripts/preflight_peer_workflow.py'
+      - 'scripts/preflight_harness_permissions.py'
       - 'scripts/preflight_pax_bridge.py'
       - '.github/workflows/preflight-pax-peer.yml'
   workflow_dispatch:
@@ -33,6 +34,8 @@ jobs:
           /tmp/peer-venv/bin/python -m pip check
       - name: Harness skills and mailbox probe with TestModel
         run: /tmp/peer-venv/bin/python scripts/preflight_harness_peer.py
+      - name: Scoped Harness file permissions (no live model)
+        run: /tmp/peer-venv/bin/python scripts/preflight_harness_permissions.py
       - name: Pax custom-agent tool bridge (no live model)
         env:
           PYTHON_DOTENV_DISABLED: '1'
@@ -41,4 +44,4 @@ jobs:
           XDG_CONFIG_HOME: /tmp/gexec-pax-config
         run: |
           /tmp/peer-venv/bin/pax --agent preflight_pax_bridge:agent --request-limit 3 -p "Run the peer probe exactly once."
-          /tmp/peer-venv/bin/python -c 'import json; r=json.load(open("/tmp/gexec-peer-receipt.json")); assert r["probe"]=="PASS" and r["model_mode"]=="TestModel" and r["result"]["peer_ack"]; print(json.dumps(r))'
+          /tmp/peer-venv/bin/python -c 'import json; r=json.load(open("/tmp/gexec-peer-receipt.json")); assert r["probe"]=="PASS" and r["model_mode"]=="TestModel" and r["result"]["peer_ack"] and r["worker_replacement_between_turns"]; print(json.dumps(r))'

@@ -30,8 +30,8 @@ Keep credentials and raw sensitive logs local. The collector only verifies basel
 ## Gate decision
 
 - B01/B04: repository identity, clean macOS clone and existing helper tests established; live host qualification not completed.
-- B02: blocked (no real Pax session/provider).
-- B03: credential-free Graph/Temporal probe PASS; full live Harness/Temporal interoperability not demonstrated.
+- B02: partial: live Pax provider connectivity and independent live Harness peer tools passed; scoped implementation permissions and full host qualification remain pending.
+- B03: Graph/Temporal and live Harness peer probe PASS; recovery during agent execution and production authorization not yet demonstrated.
 - B05: blocked. No ADR freeze, release lock, runtime adapter, or support claims.
 - B06–B24: not started because required feasibility prerequisites remain unresolved. No changes to the four production skills or their current runtime selection/model policies; no merge.
 
@@ -42,3 +42,10 @@ This branch is for inspection and continuation, not release. Do not approve the 
 Operator-reported Python 3.12.15 isolated installation and local Graph/Temporal spike PASS (same versions as Linux CI; replay/restart and duplicate update proven). Existing uv-managed Pax 0.75.0 supports `--agent`, `--model`, `--prompt`, and returned GEXEC_PAX_OK through its configured model. Its workspace was explicitly reported untrusted. A plain text answer is not tool capability proof. No credential, private path or effective model identity was retained.
 
 Added a narrowly scoped Harness Skills and Temporal peer probe, plus a custom Pax agent bridge probe; their CI tests use TestModel only. The live peer mode requires an explicitly approved provider/model; no provider secret is stored or printed. These are feasibility experiments, not a production adapter. They use separate Agent instances with the Harness Skills capability, no Coder shell/write tools, and a whole-turn Temporal activity boundary. Coder permission/checkpoint interoperability, authenticated production bridge, direct durable per-tool execution, stock Pax profile integration and native Codex/Cline smoke remain unverified. A TestModel result is not live host qualification. The gate stays NO_GO pending required live evidence.
+
+## Peer feasibility evidence (2026-11-26)
+
+- At commit 5b244226da27ff26799fcf418d75f93b6fe42c61, [CI run 45884035851](https://github.com/Trochez/graph-execution/actions/runs/45884035851) passed both 0.74.0 and 0.75.0 matrices, including actual Pax --agent invocation using TestModel and a receipt from the tool callback. Skill catalog: all four skills. No live provider credentials in CI.
+- Operator-reported macOS receipt at the same commit: offline and live probes PASS, two independent agent turns, four model requests, two activity attempts, peer_ack=true, consumer_verified=true, replay=true, all four skills found. A provider-qualified model was explicitly requested through the local OpenAI-compatible router; upstream effective route was not independently verified. No endpoint, exact model alias, credentials or user path recorded here.
+- Selected candidate seam: documented custom-agent entrypoint with explicitly composed Harness capabilities; Temporal activities for bounded turns, with workflow-authoritative mailboxes. Do not expose default unrestricted Coder Shell or recursive SubAgents in the scoped worker. See [Harness FileSystem](https://pydantic.dev/docs/ai/harness/filesystem/) and [permissions](https://pydantic.dev/docs/ai/harness/permissions/). This is a candidate, not a completed G1 freeze. Production command execution requires separate isolation/authorization; file tool restrictions are not an OS sandbox.
+- New focused checks: synthetic positive/negative filesystem scope, read-only reviewer tool inventory, worker replacement at the publisher checkpoint, consumer output derived from the received tool value rather than a copied nonce. New checks await their own CI result. No automatic repeat of in-flight external effects. Existing live receipt remains associated only with its original revision.

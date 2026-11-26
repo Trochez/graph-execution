@@ -13,6 +13,7 @@ class PeerMailbox:
         self.contract = None
         self.acked = False
         self.phase = "publisher"
+        self.released = False
 
     @workflow.update
     def publish(self, value: str) -> bool:
@@ -36,6 +37,14 @@ class PeerMailbox:
         self.acked = True
         return True
 
+    @workflow.query
+    def get_phase(self) -> str:
+        return self.phase
+
+    @workflow.signal
+    def release_consumer(self) -> None:
+        self.released = True
+
     @workflow.run
     async def run(self, nonce: str) -> dict:
         common = {
@@ -46,6 +55,8 @@ class PeerMailbox:
                                             result_type=dict, **common)
         if not a["tool_called"] or self.contract != nonce:
             raise ApplicationError("publisher did not publish")
+        self.phase = "checkpoint"
+        await workflow.wait_condition(lambda: self.released)
         self.phase = "consumer"
         # Consumer assignment intentionally contains no nonce or publisher transcript.
         b = await workflow.execute_activity("peer_turn", {"role": "consumer"},

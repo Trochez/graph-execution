@@ -19,7 +19,8 @@ import traceback
 from importlib.metadata import version
 from pathlib import Path
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import UsageLimits
 from pydantic_ai.workspaces import LocalWorkspaceBackend
@@ -50,10 +51,9 @@ async def discover():
 
 
 class PeerActivities:
-    def __init__(self, client: Client, model, nonce: str):
+    def __init__(self, client: Client, model):
         self.client = client
         self.model = model
-        self.nonce = nonce
         self.attempts = 0
 
     @activity.defn
@@ -69,9 +69,16 @@ class PeerActivities:
         # shell/file tools. Skills is a real Harness capability, read-only here.
         model = self.model
         if model is None:
-            model = TestModel(call_tools=["publish_contract" if role == "publisher" else
-                                          "receive_contract"],
-                              custom_output_text="PUBLISHED" if role == "publisher" else self.nonce)
+            if role == "publisher":
+                model = TestModel(call_tools=["publish_contract"], custom_output_text="PUBLISHED")
+            else:
+                def consume(messages, info):
+                    for msg in reversed(messages):
+                        for part in msg.parts:
+                            if part.part_kind == "tool-return" and part.tool_name == "receive_contract":
+                                return ModelResponse(parts=[TextPart(str(part.content))])
+                    return ModelResponse(parts=[ToolCallPart("receive_contract", {})])
+                model = FunctionModel(consume)
         agent = Agent(model, capabilities=[skills()],
                       instructions="This is a synthetic protocol test. Use only the assigned "
                                    "mailbox tool; never load or execute implementation instructions.")
@@ -103,8 +110,6 @@ class PeerActivities:
         async with asyncio.timeout(75):
             result = await agent.run(prompt, usage_limits=UsageLimits(request_limit=4, tool_calls_limit=3))
         usage = result.usage
-        if callable(usage):
-            usage = usage()
         return {"role": role, "tool_called": tool_called, "output": str(result.output).strip(),
                 "requests": usage.requests}
 
@@ -139,20 +144,32 @@ async def execute_probe(model=None, requested_model: str | None = None) -> dict:
     nonce = "contract-" + secrets.token_hex(12)
     workflow_id = "gexec-peer-spike-" + secrets.token_hex(8)
     async with await WorkflowEnvironment.start_local() as env:
-        peer = PeerActivities(env.client, model, nonce)
+        publisher = PeerActivities(env.client, model)
         async with Worker(env.client, task_queue=workflow_id, workflows=[PeerMailbox],
-                          activities=[peer.peer_turn]):
+                          activities=[publisher.peer_turn]):
             handle = await env.client.start_workflow(
                 PeerMailbox.run, nonce, id=workflow_id, task_queue=workflow_id,
                 execution_timeout=timedelta(minutes=4),
             )
-            result = await asyncio.wait_for(handle.result(), timeout=210)
+            async with asyncio.timeout(100):
+                while await handle.query(PeerMailbox.get_phase) != "checkpoint":
+                    await asyncio.sleep(0.2)
+        if publisher.attempts != 1:
+            raise RuntimeError("publisher turn did not checkpoint exactly once")
+        # Stop the first worker before permitting the consumer. No model/session
+        # object state or synthetic nonce is transferred to its replacement.
+        await handle.signal(PeerMailbox.release_consumer)
+        consumer = PeerActivities(env.client, model)
+        async with Worker(env.client, task_queue=workflow_id, workflows=[PeerMailbox],
+                          activities=[consumer.peer_turn]):
+            result = await asyncio.wait_for(handle.result(), timeout=110)
         await Replayer(workflows=[PeerMailbox]).replay_workflow(await handle.fetch_history())
-        if peer.attempts != 2:
+        if publisher.attempts != 1 or consumer.attempts != 1:
             raise RuntimeError("unexpected repeat execution")
     return {"probe": "PASS", "model_mode": "live" if model is not None else "TestModel",
             "requested_model": requested_model, "effective_provider_route": "unverified",
-            "skills": names, "replay": True, "activity_attempts": peer.attempts,
+            "skills": names, "replay": True, "activity_attempts": publisher.attempts + consumer.attempts,
+            "worker_replacement_between_turns": True,
             "checkpoint_boundary": "whole-turn activity", "pax_master": "not tested by this function",
             "full_host_qualification": False, "result": result,
             "versions": {p: version(p) for p in ("pydantic-ai-pax", "pydantic-ai-harness",
