@@ -17,6 +17,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from .config import check_approval, fingerprint, load_json, validate_endpoint
 from .durable_workflows import GraphRun, AgentSession
 from .workspace import snapshot, sha
+from .pipeline import Pipeline, atomic_json
 
 def local_address(address):
     if address not in ("localhost:7233", "127.0.0.1:7233", "[::1]:7233"):
@@ -34,6 +35,8 @@ def load_bundle(path: Path):
     journal = Path(bundle["journal"]).resolve()
     if journal.is_relative_to(root):
         raise ValueError("journal must be outside execution workspace")
+    if bundle.get("pipeline"):
+        Pipeline(Path(bundle["sources"]["plan"]),Path(bundle["pipeline"]),Path(bundle["skill_root"])).bind(Path(bundle["sources"]["tasks"]),Path(bundle["sources"]["team"]))
     return bundle
 
 
@@ -115,6 +118,8 @@ class Controller:
         b = await approved_bundle(self.bundle_path, os.environ.get("GEXEC_PROBE_API_KEY",""))
         if b["spec"] != self.spec:
             raise ValueError("bundle changed")
+        if b.get("pipeline"):
+            Pipeline(Path(b["sources"]["plan"]),Path(b["pipeline"]),Path(b["skill_root"])).start_executor(Path(b["sources"]["tasks"]),Path(b["sources"]["team"]))
         # Stable workflow ID; retry start only attaches to existing same-input run.
         try:
             self.handle = await self.client.start_workflow(GraphRun.run, self.spec,
@@ -128,7 +133,23 @@ class Controller:
         return await self.status()
 
     async def status(self):
-        return await self.handle.query(GraphRun.snapshot)
+        snap=await self.handle.query(GraphRun.snapshot)
+        self.project(snap)
+        return snap
+
+    def project(self,snap):
+        record=Path(self.bundle["journal"])/"records"
+        record.mkdir(mode=0o700,parents=True,exist_ok=True)
+        atomic_json(record/"execution.json",{"runtime":{"host":"pax","mode":"pax-durable","evidence":["custom agent + Temporal candidate"],"effective_model":"unknown"},"source_hashes":self.spec["source_hashes"],"snapshot":snap})
+        import tempfile
+        fd,tmp=tempfile.mkstemp(dir=record,prefix=".events-")
+        try:
+            with os.fdopen(fd,"w",encoding="utf-8") as f:
+                for event in snap["events"]:f.write(json.dumps(event,sort_keys=True)+"\n")
+            os.replace(tmp,record/"events.jsonl")
+        finally:
+            if os.path.exists(tmp):os.unlink(tmp)
+        return record
 
     async def proposal(self, task):
         return await self.handle.query(GraphRun.proposal, task)
@@ -180,6 +201,10 @@ class Controller:
             raise ValueError("all tasks must finish verified")
         receipts=await run_checks(Path(b["workspace"]),b["final_checks"])
         result={"passed":all(r["exit_code"]==0 for r in receipts),"checks":receipts,"snapshot":s}
+        record=self.project(s)
+        atomic_json(record/"final-checks.json",{"passed":result["passed"],"checks":receipts})
+        if result["passed"] and b.get("pipeline"):
+            Pipeline(Path(b["sources"]["plan"]),Path(b["pipeline"]),Path(b["skill_root"])).finish_executor([record/"execution.json",record/"events.jsonl",record/"final-checks.json"],"Actual configured final checks exited zero; all tasks verified in Temporal")
         return result
 
 

@@ -58,7 +58,10 @@ async def execute(args):
         spec=prepare(args.run_id or ("gexec-"+uuid4().hex),args.plan,args.tasks,args.team,settings)
         if set(settings["check_commands"])!=set(spec["tasks"]) or not settings["final_checks"]:
             raise ValueError("explicit checks required for all tasks and final integrated check")
-        private_json(args.output,{"spec":spec,"workspace":str(root),"skill_root":str(skill_root),
+        if args.pipeline:
+            from .pipeline import Pipeline
+            Pipeline(args.plan,args.pipeline,skill_root).bind(args.tasks,args.team)
+        private_json(args.output,{"spec":spec,"pipeline":str(args.pipeline.resolve()) if args.pipeline else None,"workspace":str(root),"skill_root":str(skill_root),
             "journal":str(journal),"base_url":settings["base_url"],"approval":str(args.approval.resolve()),
             "check_commands":settings["check_commands"],"final_checks":settings["final_checks"],
             "sources":{"plan":str(args.plan.resolve()),"tasks":str(args.tasks.resolve()),"team":str(args.team.resolve())}})
@@ -94,6 +97,7 @@ def main():
     for key in ("plan","tasks","team","settings","workspace","skill-root","journal","output"):
         m.add_argument("--"+key,type=Path,required=True)
     m.add_argument("--approval",type=Path,default=approval_path());m.add_argument("--run-id")
+    mode=m.add_mutually_exclusive_group(required=True);mode.add_argument("--pipeline",type=Path);mode.add_argument("--standalone",action="store_true")
     s.add_parser("doctor")
     for command in ("worker","start","status","review","verify","cancel","finalize"):
         m=s.add_parser(command);m.add_argument("--bundle",required=True,type=Path)
