@@ -12,6 +12,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - name: Baseline identity
         run: |
           git rev-parse HEAD
@@ -26,3 +29,6 @@ jobs:
             python3 -m unittest discover -s "skills/$skill/scripts" -p 'test_*.py' -v || failed=1
           done
           exit "$failed"
+
+      - name: Immutable legacy artifact comparison
+        run: python3 scripts/preflight_legacy_golden.py
