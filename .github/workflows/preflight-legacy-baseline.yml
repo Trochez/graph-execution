@@ -1,0 +1,28 @@
+name: Preflight legacy baseline
+on:
+  push:
+    branches:
+      - feat/pax-durable-multicli
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Baseline identity
+        run: |
+          git rev-parse HEAD
+          python3 --version
+          git status --porcelain
+      - name: Existing helper tests
+        shell: bash
+        run: |
+          failed=0
+          for skill in critical-path-planner backlog-team-designer native-plan-executor gexec; do
+            echo "=== $skill ==="
+            python3 -m unittest discover -s "skills/$skill/scripts" -p 'test_*.py' -v || failed=1
+          done
+          exit "$failed"
