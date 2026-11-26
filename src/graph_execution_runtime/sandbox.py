@@ -12,6 +12,9 @@ from .policy import command, hash_file
 
 MAX_OUTPUT=16384
 
+class SandboxInterrupted(RuntimeError):
+    pass
+
 def docker(argv, *, timeout=30, check=True):
     # Docker is a trusted local control plane. Do not forward provider credentials.
     env={k:v for k,v in os.environ.items() if k in ("PATH","HOME","DOCKER_HOST","DOCKER_CONTEXT","DOCKER_CONFIG","SYSTEMROOT","TMPDIR")}
@@ -43,7 +46,8 @@ class Sandbox:
             self.close()
             raise
     def _run(self, argv, timeout):
-        if self.closed or self.remaining<=0:raise RuntimeError("command budget exhausted or closed container")
+        if self.closed:raise SandboxInterrupted("container already stopped")
+        if self.remaining<=0:raise RuntimeError("command budget exhausted")
         self.remaining-=1
         start=time.monotonic()
         # Spool bounded output on the host; do not retain raw unbounded stdout.
@@ -74,12 +78,19 @@ class Sandbox:
             timed_out=True
             # Killing the CLI alone does not kill docker exec; remove the container.
             try:self.close()
-            finally:p.kill();p.wait()
+            finally:
+                if p.poll() is None:p.kill()
+                p.wait()
         t.join(timeout=5)
         r={"argv":argv,"exit_code":None if timed_out else p.returncode,"timeout":timed_out,
            "output":captured.decode("utf-8",errors="replace"),"output_sha256":h.hexdigest(),"output_bytes":count,
            "truncated":count>MAX_OUTPUT,"elapsed_ms":round((time.monotonic()-start)*1000)}
-        self.receipts.append(r);return r
+        self.receipts.append(r)
+        if timed_out:raise SandboxInterrupted("command timeout; sandbox stopped")
+        alive=docker(["inspect","--format","{{.State.Running}}",self.name],check=False)
+        if alive.returncode!=0 or alive.stdout.strip()!=b"true":
+            self.close();raise SandboxInterrupted("sandbox interrupted and stopped")
+        return r
     def run(self,argv,timeout=60):
         argv=command(argv,self.profile["commands"])
         if argv[0]=="pytest":argv=["python","-m",*argv]

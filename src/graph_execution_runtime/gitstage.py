@@ -106,6 +106,7 @@ class Staging:
         intent=self.journal/(key+".intent.json");done=self.journal/(key+".done.json")
         if intent.exists():
             p=json.loads(intent.read_text());current=self.head()
+            if p.get("proposal_sha256")!=hashlib.sha256(json.dumps(edits,sort_keys=True).encode()).hexdigest() or not self.unchanged():raise RuntimeError("publication reconciliation mismatch")
             if current==p["new"]:
                 if not done.exists():atomic_json(done,p)
                 return p
@@ -117,7 +118,9 @@ class Staging:
         after=apply_edits(before,edits,task["writes"])
         checks=verify(after)
         if not checks or any(x["exit_code"]!=0 for x in checks):raise ValueError("independent candidate checks failed")
-        if not edits:return {"old":old,"new":old,"checks":checks,"applied":True,"files":[]}
+        if not edits:
+            record={"old":old,"new":old,"proposal_sha256":hashlib.sha256(json.dumps(edits,sort_keys=True).encode()).hexdigest(),"checks":checks,"applied":True,"files":[]}
+            atomic_json(intent,record);atomic_json(done,record);return record
         with tempfile.TemporaryDirectory(dir=self.journal) as d:
             idx=str(Path(d)/"index");env={"GIT_INDEX_FILE":idx}
             git(self.root,"read-tree",old,env=env)

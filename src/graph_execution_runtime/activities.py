@@ -161,10 +161,15 @@ class Activities:
                     "input_tokens": result.usage.input_tokens, "output_tokens": result.usage.output_tokens,
                     "attempt": packet["attempt"]}
         except Exception as exc:
-            # Do not serialize provider exception strings or credentials into Temporal.
+            # Retry only an isolated, confirmed-discarded attempt. Never retry uncertain publication.
+            if coding:
+                from .sandbox import SandboxInterrupted
+                if isinstance(exc,SandboxInterrupted):
+                    await asyncio.to_thread(coding.close)
+                    return {"disposition":"retryable","reason":"sandbox interrupted and discarded","container_stopped":True}
             return {"disposition": "blocked", "reason": type(exc).__name__}
         finally:
-            if coding:await asyncio.to_thread(coding.close)
+            if coding and not coding.cleaned:await asyncio.to_thread(coding.close)
 
     @activity.defn
     async def apply_proposal(self, packet: dict) -> dict:
@@ -176,6 +181,10 @@ class Activities:
             from .operator import load_bundle
             b=load_bundle(self.bundle_path);r=packet["result"]
             if not r.get("container_stopped"):raise PermissionError("uncertain worker cleanup")
+            if packet.get("approval",{}).get("proposal_sha256")!=r.get("proposal_sha256") or packet["approval"].get("attempt")!=packet["attempt"]:
+                raise PermissionError("publication not bound to approved proposal")
+            from .policy import digest
+            if hashlib.sha256(json.dumps(r["edits"],sort_keys=True).encode()).hexdigest()!=r["proposal_sha256"]:raise PermissionError("proposal digest changed")
             def verify(data):return compact_receipts(checks_in_sandbox(data,b["profile"],b["check_commands"][task["id"]]))
             return await asyncio.to_thread(stage_for(b).publish,task,packet["attempt"],r["edits"],verify,inputs=r["input_hashes"])
         return integrate(self.root, self.journal, task, packet["attempt"], packet["result"]["edits"])

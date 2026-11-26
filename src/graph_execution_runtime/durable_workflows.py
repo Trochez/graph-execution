@@ -7,6 +7,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from .scheduler import initialize, ready, validate_tasks
+from .live_mailbox import valid_packet,generation,can_recover
 
 NO_RETRY = RetryPolicy(maximum_attempts=1)
 
@@ -71,6 +72,9 @@ class GraphRun:
 
     @workflow.update
     def send(self, packet: dict) -> dict:
+        v2=self.spec.get("runtime_version")==2
+        if v2 and not valid_packet(packet):return {"accepted":False,"reason":"invalid typed message"}
+        if v2:self.expire()
         # Only trusted activity closures may call this internal endpoint.
         # A local dev namespace is not a network authorization boundary.
         if self.cancelled or not (self.check_actor(packet) or (packet.get("sender") == self.spec["master"] and packet.get("task") is None)):
@@ -81,7 +85,7 @@ class GraphRun:
         if mid in self.messages:
             old = self.messages[mid]
             return {"accepted": old["packet"] == packet, "duplicate": True}
-        if len(self.messages) >= 512 or packet.get("recipient") not in self.spec["agents"]:
+        if len(self.messages) >= (513 if v2 and packet.get("kind")=="CANCEL" else 512) or packet.get("recipient") not in self.spec["agents"]:
             return {"accepted": False, "reason": "capacity or unknown recipient"}
         content = packet.get("text")
         if not isinstance(content, str) or not content.strip() or len(content.encode()) > 4096:
@@ -90,16 +94,22 @@ class GraphRun:
                for m in self.messages.values()) >= 64:
             return {"accepted": False, "reason": "recipient capacity"}
         kind = packet.get("kind", "HANDOFF")
-        if kind not in ("QUESTION", "ANSWER", "HANDOFF", "PROGRESS", "BLOCKED"):
+        if kind not in (("QUESTION","ANSWER","HANDOFF","PROGRESS","BLOCKED","CANCEL") if v2 else ("QUESTION","ANSWER","HANDOFF","PROGRESS","BLOCKED")):
             return {"accepted": False, "reason": "unsupported agent message kind"}
+        if kind=="CANCEL" and packet["sender"]!=self.spec["master"]:return {"accepted":False,"reason":"master-only control"}
         if kind == "ANSWER":
             original = self.messages.get(packet.get("correlation_id"))
             if not original or original["packet"].get("kind") != "QUESTION" or original["packet"]["sender"] != packet["recipient"] or original["packet"]["recipient"] != packet["sender"] or original["status"] in ("EXPIRED", "DEAD_LETTERED"):
                 return {"accepted": False, "reason": "invalid correlation"}
+            if v2 and original.get("recipient_generation") not in (None,generation(packet)):
+                return {"accepted":False,"reason":"stale response generation"}
         sequence = 1 + sum(m["packet"]["sender"] == packet["sender"] and m["packet"]["recipient"] == packet["recipient"] for m in self.messages.values())
         self.messages[mid] = {"packet": packet, "sequence": sequence, "status": "ACCEPTED",
                               "expires_at": (workflow.now() + timedelta(seconds=120)).isoformat()}
+        if v2:
+            self.messages[mid].update(protocol_version=2,sender_generation=generation(packet),recipient_generation=None)
         self.event("message_accepted", packet["task"], mid)
+        if v2 and kind=="CANCEL":self.stop("master control message")
         return {"accepted": True, "duplicate": False}
 
     def expire(self):
@@ -114,6 +124,12 @@ class GraphRun:
         if self.cancelled or not self.check_actor(packet):
             return []
         self.expire()
+        if self.spec.get("runtime_version")==2:
+            g=generation(packet)
+            eligible=[m for m in self.messages.values() if m["status"]=="ACCEPTED" and m["packet"]["recipient"]==packet["sender"] and m.get("recipient_generation") in (None,g)]
+            eligible.sort(key=lambda m:m["packet"]["kind"]!="CANCEL")
+            for m in eligible[:20]:m["recipient_generation"]=g
+            return [m["packet"] for m in eligible[:20]]
         return [m["packet"] for m in self.messages.values()
                 if m["status"] == "ACCEPTED" and m["packet"]["recipient"] == packet["sender"]][:20]
 
@@ -125,6 +141,11 @@ class GraphRun:
         m = self.messages.get(packet.get("id"))
         if not m or m["packet"]["recipient"] != packet["sender"]:
             return False
+        if self.spec.get("runtime_version")==2:
+            g=generation(packet)
+            if m.get("recipient_generation") not in (None,g):return False
+            if packet.get("task") is not None and m.get("recipient_generation") is None:return False
+            m["recipient_generation"]=g
         if m["status"] == "PROCESSED":
             return True
         if m["status"] != "ACCEPTED":
@@ -146,6 +167,10 @@ class GraphRun:
         if not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 2048:
             return {"accepted": False, "reason": "missing evidence"}
         if action == "apply":
+            if self.spec.get("runtime_version")==2:
+                if not s["result"].get("proposal_sha256") or decision.get("proposal_sha256")!=s["result"]["proposal_sha256"]:
+                    return {"accepted":False,"reason":"proposal digest mismatch"}
+                s["approval"]={"attempt":s["attempt"],"proposal_sha256":decision["proposal_sha256"],"evidence":evidence}
             self.transition(key, "applying", evidence)
         elif action == "repair" and s["attempt"] < 2:
             s["used_requests"] = s.get("used_requests",0) + s["result"].get("model_requests",0)
@@ -191,6 +216,9 @@ class GraphRun:
                   "attempt": attempt, "model": self.spec.get("agent_models",{}).get(self.spec["tasks"][key]["owner"],self.spec["model"]), "agents": list(self.spec["agents"]),
                   "source_hashes": self.spec["source_hashes"], "repair_reason": s.get("repair_reason"),
                   "remaining_requests": self.spec["tasks"][key]["request_budget"] - s.get("used_requests",0)}
+        if self.spec.get("runtime_version")==2:
+            # Conservatively partition per-task requests across at most two attempts.
+            packet["remaining_requests"]=max(1,packet["task"]["request_budget"]//2)
         self.transition(key, "in_progress")
         try:
             child = await workflow.start_child_workflow(AgentSession.run, packet,
@@ -201,7 +229,20 @@ class GraphRun:
             if self.cancelled:
                 self.transition(key, "cancelled", "proposal not applied")
             elif result.get("disposition") == "submitted":
-                self.transition(key, "verifying")
+                if self.spec.get("runtime_version")==2 and (result.get("attempt")!=attempt or not result.get("container_stopped") or not result.get("proposal_sha256")):
+                    self.transition(key,"blocked","invalid fenced proposal")
+                else:self.transition(key, "verifying")
+            elif self.spec.get("runtime_version")==2 and result.get("disposition")=="retryable" and result.get("container_stopped") and attempt==1 and can_recover(self.messages,key,attempt):
+                g={"task":key,"attempt":attempt}
+                for mid,m in self.messages.items():
+                    if m.get("sender_generation")==g and m["status"]=="ACCEPTED":
+                        m["status"]="DEAD_LETTERED";self.event("message_dead_lettered",key,mid)
+                    elif m.get("recipient_generation")==g and m["status"] in ("ACCEPTED","PROCESSED"):
+                        m["recipient_generation"]=None;m["status"]="ACCEPTED";self.event("message_redeliver",key,mid)
+                s["repair_reason"]="previous isolated container stopped; restart with fresh scratch"
+                s["result"]=None
+                self.event("worker_recovery",key,{"discarded_attempt":attempt,"container_stopped":True})
+                self.transition(key,"pending",s["repair_reason"])
             else:
                 self.transition(key, "blocked", result.get("reason", "agent did not submit"))
         except Exception as exc:
@@ -212,8 +253,9 @@ class GraphRun:
         try:
             result = await workflow.execute_activity("apply_proposal",
                 {"parent": workflow.info().workflow_id, "task": self.spec["tasks"][key],
-                 "attempt": s["attempt"], "result": s["result"], "source_hashes": self.spec["source_hashes"]},
-                result_type=dict, start_to_close_timeout=timedelta(seconds=60), retry_policy=NO_RETRY)
+                 "attempt": s["attempt"], "result": s["result"], "source_hashes": self.spec["source_hashes"],
+                 **({"approval":s["approval"]} if self.spec.get("runtime_version")==2 else {})},
+                result_type=dict, start_to_close_timeout=timedelta(seconds=180 if self.spec.get("runtime_version")==2 else 60), retry_policy=NO_RETRY)
             s["integration"] = result
             if result.get("applied") and not self.cancelled:
                 self.transition(key, "applied")

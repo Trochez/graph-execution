@@ -59,12 +59,13 @@ class CodingSession:
         self.root=Path(self.tmp.name)
         materialize(self.before,self.root)
         self.sandbox=Sandbox(self.root,self.profile)
-        self.seen={};self.last_signature=None;self.repeated=0;self.finished=False
+        self.seen={};self.last_signature=None;self.repeated=0;self.finished=False;self.cleaned=False
         self.record=Path(bundle["journal"])/"attempts"/(task["id"]+"-"+str(attempt)+".json")
         self.inputs={p:sha(self.before.get(p)) for p in sorted(set(task["reads"]+task["writes"]))}
         from .budget import Budget
         self.budget=Budget(bundle["budget_db"],task["id"],task["request_budget"])
     def start(self):
+        atomic_json(self.record,{"status":"starting","container":self.sandbox.name,"attempt":self.attempt,"base":self.base_revision})
         self.sandbox.__enter__()
         atomic_json(self.record,{"status":"started","container":self.sandbox.name,"attempt":self.attempt,"base":self.base_revision})
     def check(self,path,write=False):
@@ -88,6 +89,7 @@ class CodingSession:
     def run(self,argv,timeout):
         self.budget.tool()
         r=self.sandbox.run(argv,timeout)
+        atomic_json(self.record,{"status":"command_completed","container":self.sandbox.name,"attempt":self.attempt,"base":self.base_revision,"commands":compact_receipts(self.sandbox.receipts)})
         self.repeat(json.dumps([argv,r["exit_code"],r["output_sha256"]]))
         return r
     def attach(self,agent):
@@ -159,6 +161,7 @@ class CodingSession:
         atomic_json(self.record,{"status":"submitted",**facts})
         self.finished=True;return facts
     def close(self):
+        if self.cleaned:return
         self.sandbox.close()
         if not self.finished:atomic_json(self.record,{"status":"discarded","container_stopped":True,"attempt":self.attempt,"commands":compact_receipts(self.sandbox.receipts)})
-        self.tmp.cleanup()
+        self.tmp.cleanup();self.cleaned=True
