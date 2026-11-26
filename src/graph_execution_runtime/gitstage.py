@@ -46,17 +46,21 @@ def materialize(data,dest):
 
 def scratch_inventory(root,profile):
     root=Path(root);out={}
-    for p in root.rglob("*"):
-        rel=p.relative_to(root).as_posix()
-        if rel.split("/")[0] in (".gexec-deps",".pytest_cache","__pycache__") or "__pycache__" in rel.split("/"):continue
-        safe_path(rel)
-        if p.is_symlink():raise ValueError("symlink export denied")
-        if p.is_dir():continue
-        if not p.is_file() or p.stat().st_nlink!=1 or p.stat().st_mode&0o111 or not within(rel,profile["paths"]):
-            raise ValueError("forbidden scratch export")
-        if p.stat().st_size>65536:raise ValueError("export size")
-        d=p.read_bytes();d.decode("utf-8");out[rel]=d
-        if len(out)>250:raise ValueError("inventory bound")
+    for directory,dirs,files in os.walk(root,followlinks=False):
+        for name in dirs[:]:
+            p=Path(directory)/name
+            if p.is_symlink():raise ValueError("symlink export denied")
+            if name in (".gexec-deps",".pytest_cache","__pycache__"):
+                dirs.remove(name);continue
+            safe_path(p.relative_to(root).as_posix())
+        for name in files:
+            p=Path(directory)/name;rel=p.relative_to(root).as_posix()
+            safe_path(rel)
+            if p.is_symlink() or not p.is_file() or p.stat().st_nlink!=1 or p.stat().st_mode&0o111 or not within(rel,profile["paths"]):
+                raise ValueError("forbidden scratch export")
+            if p.stat().st_size>65536:raise ValueError("export size")
+            d=p.read_bytes();d.decode("utf-8");out[rel]=d
+            if len(out)>250:raise ValueError("inventory bound")
     if len({p.casefold() for p in out})!=len(out):raise ValueError("path collision")
     return out
 
@@ -95,7 +99,7 @@ class Staging:
         git(self.root,"update-ref",self.ref,self.baseline["head"],"0"*40)
     def head(self):return git(self.root,"rev-parse",self.ref).decode().strip()
     def unchanged(self):return inspect(self.root)==self.baseline
-    def publish(self,task,attempt,edits,verify):
+    def publish(self,task,attempt,edits,verify,*,inputs=None):
         # Only called by the serialized, master-approved integration activity.
         self.journal.mkdir(parents=True,exist_ok=True)
         key=hashlib.sha256(f"{task['id']}:{attempt}".encode()).hexdigest()
@@ -109,6 +113,7 @@ class Staging:
             git(self.root,"update-ref",self.ref,p["new"],p["old"]);atomic_json(done,p);return p
         if not self.unchanged():raise RuntimeError("original checkout changed")
         old=self.head();before=inventory(self.root,old,self.profile)
+        if inputs is not None and any(sha(before.get(p))!=v for p,v in inputs.items()):raise ValueError("stale task input")
         after=apply_edits(before,edits,task["writes"])
         checks=verify(after)
         if not checks or any(x["exit_code"]!=0 for x in checks):raise ValueError("independent candidate checks failed")
@@ -123,7 +128,7 @@ class Staging:
                     git(self.root,"update-index","--add","--cacheinfo","100644",oid,e["path"],env=env)
             tree=git(self.root,"write-tree",env=env).decode().strip()
             new=git(self.root,"commit-tree",tree,"-p",old,"-m",f"gexec task {task['id']} attempt {attempt}").decode().strip()
-        record={"old":old,"new":new,"checks":checks,"applied":True,"files":[{"path":e["path"],"sha256":e["sha256"]} for e in edits]}
+        record={"old":old,"new":new,"proposal_sha256":hashlib.sha256(json.dumps(edits,sort_keys=True).encode()).hexdigest(),"checks":checks,"applied":True,"files":[{"path":e["path"],"sha256":e["sha256"]} for e in edits]}
         atomic_json(intent,record)
         if not self.unchanged():raise RuntimeError("original checkout changed before CAS")
         git(self.root,"update-ref",self.ref,new,old);atomic_json(done,record)

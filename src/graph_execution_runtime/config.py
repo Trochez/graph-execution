@@ -62,7 +62,8 @@ def prepare(workflow_id: str, plan: Path, tasks_path: Path, team_path: Path, set
         # Exact paths are explicitly supplied by the operator. Never interpret
         # natural-language write_scope as filesystem permission.
         supported={"text_read","text_proposal","peer_message","master_verify","review"}
-        if set(t.get("required_capabilities",[]))-supported or t.get("human_gates") or scope.get("unresolved_gates") or scope.get("requires_shell") or scope.get("requires_os_sandbox"):
+        if settings.get("sandbox_mode"):supported|={"sandbox","command","offline_install","text_edit"}
+        if set(t.get("required_capabilities",[]))-supported or t.get("human_gates") or scope.get("unresolved_gates") or (not settings.get("sandbox_mode") and (scope.get("requires_shell") or scope.get("requires_os_sandbox"))):
             raise ValueError("task has unsupported or unresolved mandatory capability")
         checks = t["verification"]
         if isinstance(checks, str):
@@ -95,6 +96,9 @@ def prepare(workflow_id: str, plan: Path, tasks_path: Path, team_path: Path, set
             "capacity": capacity, "run_timeout": run_timeout, "model": model, "master_model":master_model, "agent_models":agent_models,
             "source_hashes": {"plan": fingerprint(plan), "tasks": fingerprint(tasks_path),
                               "team": fingerprint(team_path)}}
+    if settings.get("sandbox_mode"):
+        result["runtime_version"]=2
+        result["policy_sha256"]=settings["policy_sha256"]
     result["spec_sha256"]=spec_digest(result)
     return result
 

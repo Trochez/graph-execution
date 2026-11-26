@@ -21,11 +21,12 @@ class Sandbox:
     def __init__(self, root, profile):
         self.root=Path(root).resolve(strict=True);self.profile=profile
         self.name="gexec-"+uuid4().hex;self.receipts=[];self.closed=False;self.started=False
-        self.remaining=24
+        self.remaining=30
     def __enter__(self):
         # No network, host home, Git metadata, provider credentials or Docker socket.
         # Only private disposable scratch and approved offline wheelhouse mounted.
         if "," in str(self.root) or "," in str(self.profile["wheelhouse"]):raise ValueError("unsupported mount path")
+        if os.getuid()==0:raise PermissionError("run supervisor as non-root")
         docker(["image","inspect",self.profile["image"]])
         self.started=True
         try:
@@ -57,7 +58,18 @@ class Sandbox:
                 if len(captured)<MAX_OUTPUT:captured.extend(b[:MAX_OUTPUT-len(captured)])
         t=threading.Thread(target=drain,daemon=True);t.start()
         timed_out=False
-        try:p.wait(timeout=timeout)
+        try:
+            deadline=time.monotonic()+timeout
+            while p.poll() is None:
+                if time.monotonic()>=deadline:raise subprocess.TimeoutExpired(argv,timeout)
+                # Conservative monitored scratch cap. Never follow symlinks.
+                total=0
+                for directory,dirs,files in os.walk(self.root,followlinks=False):
+                    for name in files:
+                        try:total+=os.lstat(os.path.join(directory,name)).st_size
+                        except FileNotFoundError:pass
+                        if total>128*1024*1024:raise subprocess.TimeoutExpired(argv,timeout)
+                time.sleep(.2)
         except subprocess.TimeoutExpired:
             timed_out=True
             # Killing the CLI alone does not kill docker exec; remove the container.
@@ -69,7 +81,9 @@ class Sandbox:
            "truncated":count>MAX_OUTPUT,"elapsed_ms":round((time.monotonic()-start)*1000)}
         self.receipts.append(r);return r
     def run(self,argv,timeout=60):
-        return self._run(command(argv,self.profile["commands"]),min(60,max(1,timeout)))
+        argv=command(argv,self.profile["commands"])
+        if argv[0]=="pytest":argv=["python","-m",*argv]
+        return self._run(argv,min(60,max(1,timeout)))
     def install(self,wheels):
         if not isinstance(wheels,list) or not wheels or len(wheels)>20 or len(set(wheels))!=len(wheels):raise ValueError("invalid wheel list")
         for w in wheels:
