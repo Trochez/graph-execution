@@ -25,6 +25,7 @@ from graph_execution_runtime.cli import private_json
 from graph_execution_runtime.config import prepare
 from graph_execution_runtime.durable_workflows import GraphRun, AgentSession
 from graph_execution_runtime.operator import Controller, discover_models, model_factory, local_address
+from graph_execution_runtime.diagnostics import classify
 
 
 ROOT=Path(__file__).resolve().parent.parent
@@ -81,9 +82,9 @@ async def run(args,key):
              PYTHON_DOTENV_DISABLED="1",PYDANTIC_AI_NO_BANNER="1")
     env.pop("GEXEC_PIPELINE_CONFIG",None)
     prompt=("Use the actual native-plan-executor skill in the current configured Pax bridge. "
-            "Start the approved graph, inspect status and each proposal; review and apply valid proposals, "
-            "then verify every integrated task using the provided runtime tools. Use gexec_wait with the "
-            "latest revision rather than tight polling. Do not tell B the contract; B must receive A's "
+            "Start the approved graph, inspect status and each proposal; call gexec_review_and_verify with the exact inspected attempt and concrete review evidence. "
+            "Use gexec_wait only when no task is actionable; do not repeatedly read status after every tool. "
+            "Do not tell B the contract; B must receive A's "
             "peer message. Finalize only after all four tasks are verified; call gexec_finalize. "
             "This is an authorized disposable fixture; no unrelated actions. If blocked, report the exact stage.")
     async with Worker(client,task_queue=spec["workflow_id"],workflows=[GraphRun,AgentSession],
@@ -107,11 +108,19 @@ async def run(args,key):
         final=json.loads(receipt_path.read_text()) if receipt_path.is_file() else {"passed":False}
         peer=any(m["sender"]=="A" and m["recipient"]=="B" and m["status"]=="PROCESSED" for m in s["messages"])
         passed=proc.returncode==0 and s["finished"] and not s["cancelled"] and all(t["status"]=="done" for t in s["tasks"].values()) and final["passed"] and peer
+        stopped=None
         if not s["finished"]:
             await c.stop("live smoke ended without finalization")
+            try:
+                drained=await asyncio.wait_for(c.handle.result(),timeout=150)
+                stopped={"finished":drained["finished"],"cancelled":drained["cancelled"],
+                         "tasks":{k:v["status"] for k,v in drained["tasks"].items()}}
+            except Exception as exc:
+                stopped={"finished":False,"error_type":type(exc).__name__}
         report={"probe":"PASS" if passed else "FAIL","workflow_id":spec["workflow_id"],"pax_exit":proc.returncode,
                 "tasks":{k:v["status"] for k,v in s["tasks"].items()},"peer_ack":peer,
-                "final_checks":final["passed"],"requested_model":args.model,"effective_model":"unknown",
+                "final_checks":final["passed"],"requested_model":args.model,"effective_model":"unknown","diagnostics":classify(output.decode("utf-8",errors="replace")),
+                "post_stop":stopped,
                 "master":"actual Pax custom-agent CLI","live_model_calls":True,
                 "scope":"disposable executor fixture; not full release qualification"}
         private_json(bundle.parent/"receipt.json",report)

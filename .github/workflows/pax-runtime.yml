@@ -6,6 +6,8 @@ on:
     paths:
       - 'src/**'
       - 'tests/integration/**'
+      - 'tests/contracts/**'
+      - 'scripts/live_pax_runtime_smoke.py'
       - 'pyproject.toml'
       - '.github/workflows/pax-runtime.yml'
   workflow_dispatch:
