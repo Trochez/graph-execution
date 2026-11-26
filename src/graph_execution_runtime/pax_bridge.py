@@ -55,7 +55,7 @@ async def gexec_start() -> dict:
 
 @agent.tool_plain
 async def gexec_status() -> dict:
-    """Inspect durable task states, proposals, messages and events."""
+    """Inspect bounded durable task summaries, message metadata and events."""
     return await (await controller()).status()
 
 
@@ -91,3 +91,24 @@ async def gexec_finalize() -> dict:
 async def gexec_cancel(reason: str) -> dict:
     """Stop dispatch for this run; preserve any partial effects for reconciliation."""
     return await (await controller()).stop(reason)
+
+
+@agent.tool_plain
+async def gexec_proposal(task_id: str) -> dict | None:
+    """Inspect the full proposed file changes for one task before review."""
+    return await (await controller()).proposal(task_id)
+
+@agent.tool_plain
+async def gexec_inbox() -> list[dict]:
+    """Read pending messages addressed to this master."""
+    return await (await controller()).inbox()
+
+@agent.tool_plain
+async def gexec_message(recipient: str, text: str, message_key: str, kind: str = "HANDOFF", correlation_id: str | None = None) -> dict:
+    """Send scoped master guidance; reuse message_key when retrying."""
+    return await (await controller()).send(recipient,text,message_key,kind,correlation_id)
+
+@agent.tool_plain
+async def gexec_ack(message_id: str) -> bool:
+    """Acknowledge a processed message addressed to this master."""
+    return await (await controller()).ack(message_id)

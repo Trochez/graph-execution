@@ -9,7 +9,8 @@ import subprocess
 from datetime import timedelta
 from pathlib import Path
 
-from temporalio.client import Client, WorkflowIDReusePolicy
+from temporalio.client import Client
+from temporalio.common import WorkflowIDReusePolicy
 from temporalio.worker import Worker
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -129,6 +130,19 @@ class Controller:
     async def status(self):
         return await self.handle.query(GraphRun.snapshot)
 
+    async def proposal(self, task):
+        return await self.handle.query(GraphRun.proposal, task)
+
+    async def inbox(self):
+        return await self.handle.query(GraphRun.master_inbox)
+
+    async def send(self, recipient, text, message_key, kind="HANDOFF", correlation_id=None):
+        mid=sha(f"{self.spec['workflow_id']}:{self.spec['master']}:{message_key}".encode())
+        return await self.handle.execute_update(GraphRun.send, {"task":None,"sender":self.spec["master"],"attempt":None,"recipient":recipient,"text":text,"id":mid,"kind":kind,"correlation_id":correlation_id})
+
+    async def ack(self, message_id):
+        return await self.handle.execute_update(GraphRun.ack, {"task":None,"sender":self.spec["master"],"attempt":None,"id":message_id})
+
     async def review(self, task, action, evidence):
         load_bundle(self.bundle_path)
         state = (await self.status())["tasks"][task]
@@ -180,6 +194,6 @@ async def run_worker(bundle_path: Path, address: str):
                       lambda task: model_factory(b["base_url"],key,spec["model"]),
                       Path(b["skill_root"]), approved_spec=spec)
     async with Worker(client, task_queue=spec["workflow_id"], workflows=[GraphRun,AgentSession],
-                      activities=[acts.agent_turn,acts.apply_proposal]):
+                      activities=[acts.agent_turn,acts.apply_proposal,acts.graph_ready]):
         print(json.dumps({"ready":True,"workflow_id":spec["workflow_id"],"queue":spec["workflow_id"]}),flush=True)
         await asyncio.Future()

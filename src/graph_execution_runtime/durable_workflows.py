@@ -46,12 +46,21 @@ class GraphRun:
 
     @workflow.query
     def snapshot(self) -> dict:
+        tasks = {key: {**state, "result": ({k:v for k,v in state["result"].items() if k != "edits"} | {"edit_paths":[e["path"] for e in state["result"].get("edits",[])]}) if state["result"] is not None else None} for key,state in self.states.items()}
         return {"schema_version": 1, "workflow_id": workflow.info().workflow_id,
-                "tasks": self.states, "messages": list(self.messages.values()),
+                "tasks": tasks, "messages": [{"id": m["packet"]["id"], "sender":m["packet"]["sender"], "recipient":m["packet"]["recipient"], "status":m["status"]} for m in self.messages.values()],
                 "events": self.events, "revision": self.revision,
                 "cancelled": self.cancelled, "finished": self.finished,
                 "source_hashes": self.spec.get("source_hashes", {}),
                 "model": self.spec.get("model")}
+
+    @workflow.query
+    def proposal(self, task: str) -> dict | None:
+        return self.states[task]["result"]
+
+    @workflow.query
+    def master_inbox(self) -> list[dict]:
+        return [m["packet"] for m in self.messages.values() if m["packet"]["recipient"] == self.spec["master"] and m["status"] == "ACCEPTED"][:20]
 
     def check_actor(self, packet):
         key = packet.get("task")
@@ -64,7 +73,7 @@ class GraphRun:
     def send(self, packet: dict) -> dict:
         # Only trusted activity closures may call this internal endpoint.
         # A local dev namespace is not a network authorization boundary.
-        if self.cancelled or not self.check_actor(packet):
+        if self.cancelled or not (self.check_actor(packet) or (packet.get("sender") == self.spec["master"] and packet.get("task") is None)):
             return {"accepted": False, "reason": "inactive sender"}
         mid = packet.get("id")
         if not isinstance(mid, str) or not mid or len(mid) > 120:
@@ -80,7 +89,15 @@ class GraphRun:
         if sum(m["packet"]["recipient"] == packet["recipient"] and m["status"] == "ACCEPTED"
                for m in self.messages.values()) >= 64:
             return {"accepted": False, "reason": "recipient capacity"}
-        self.messages[mid] = {"packet": packet, "status": "ACCEPTED",
+        kind = packet.get("kind", "HANDOFF")
+        if kind not in ("QUESTION", "ANSWER", "HANDOFF", "PROGRESS", "BLOCKED"):
+            return {"accepted": False, "reason": "unsupported agent message kind"}
+        if kind == "ANSWER":
+            original = self.messages.get(packet.get("correlation_id"))
+            if not original or original["packet"].get("kind") != "QUESTION" or original["packet"]["sender"] != packet["recipient"] or original["packet"]["recipient"] != packet["sender"] or original["status"] in ("EXPIRED", "DEAD_LETTERED"):
+                return {"accepted": False, "reason": "invalid correlation"}
+        sequence = 1 + sum(m["packet"]["sender"] == packet["sender"] and m["packet"]["recipient"] == packet["recipient"] for m in self.messages.values())
+        self.messages[mid] = {"packet": packet, "sequence": sequence, "status": "ACCEPTED",
                               "expires_at": (workflow.now() + timedelta(seconds=120)).isoformat()}
         self.event("message_accepted", packet["task"], mid)
         return {"accepted": True, "duplicate": False}
@@ -102,7 +119,7 @@ class GraphRun:
 
     @workflow.update
     def ack(self, packet: dict) -> bool:
-        if self.cancelled or not self.check_actor(packet):
+        if self.cancelled or not (self.check_actor(packet) or (packet.get("sender") == self.spec["master"] and packet.get("task") is None)):
             return False
         self.expire()
         m = self.messages.get(packet.get("id"))
@@ -131,8 +148,13 @@ class GraphRun:
         if action == "apply":
             self.transition(key, "applying", evidence)
         elif action == "repair" and s["attempt"] < 2:
-            s["result"] = None
-            self.transition(key, "pending", evidence)
+            s["used_requests"] = s.get("used_requests",0) + s["result"].get("model_requests",0)
+            if s["used_requests"] >= self.spec["tasks"][key]["request_budget"]:
+                self.transition(key, "blocked", "request budget exhausted")
+            else:
+                s["repair_reason"] = evidence
+                s["result"] = None
+                self.transition(key, "pending", evidence)
         elif action == "block" or action == "repair":
             self.transition(key, "blocked", evidence)
         else:
@@ -167,7 +189,8 @@ class GraphRun:
         attempt = s["attempt"]
         packet = {"parent": workflow.info().workflow_id, "task": self.spec["tasks"][key],
                   "attempt": attempt, "model": self.spec["model"], "agents": list(self.spec["agents"]),
-                  "source_hashes": self.spec["source_hashes"]}
+                  "source_hashes": self.spec["source_hashes"], "repair_reason": s.get("repair_reason"),
+                  "remaining_requests": self.spec["tasks"][key]["request_budget"] - s.get("used_requests",0)}
         self.transition(key, "in_progress")
         try:
             child = await workflow.start_child_workflow(AgentSession.run, packet,
@@ -229,7 +252,15 @@ class GraphRun:
                         if state["status"] == "applying" and key not in self.active:
                             self.active[key] = asyncio.create_task(self.apply_turn(key))
                             break
-                for key in ready(spec["tasks"], self.states, spec["capacity"]):
+                candidates = ready(spec["tasks"], self.states, spec["capacity"])
+                if candidates:
+                    revision = self.revision
+                    checked = await workflow.execute_activity("graph_ready", {"tasks":spec["tasks"], "states":{k:{"status":s["status"]} for k,s in self.states.items()}, "capacity":spec["capacity"]}, result_type=list[str], start_to_close_timeout=timedelta(seconds=15), retry_policy=NO_RETRY)
+                    if self.revision != revision:
+                        continue
+                    if checked != candidates:
+                        raise ApplicationError("graph decision differs from deterministic scheduler", non_retryable=True)
+                for key in candidates:
                     if key not in self.active:
                         self.transition(key, "ready")
                         self.active[key] = asyncio.create_task(self.run_turn(key))

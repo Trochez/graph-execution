@@ -15,6 +15,7 @@ from temporalio.client import Client
 
 from .durable_workflows import GraphRun
 from .workspace import snapshot, sha, integrate, MAX_BYTES
+from .scheduler import ready
 
 
 class Activities:
@@ -27,6 +28,17 @@ class Activities:
         self.model_factory = model_factory
         self.skill_root = skill_root
         self.approved_spec = approved_spec
+
+    @activity.defn
+    async def graph_ready(self, data: dict) -> list[str]:
+        from pydantic_graph import GraphBuilder, StepContext
+        builder = GraphBuilder(input_type=dict, output_type=list[str])
+        @builder.step
+        async def select(ctx: StepContext[None,None,dict]) -> list[str]:
+            packet=ctx.inputs
+            return ready(packet["tasks"],packet["states"],packet["capacity"])
+        builder.add(builder.edge_from(builder.start_node).to(select),builder.edge_from(select).to(builder.end_node))
+        return await builder.build().run(inputs=data)
 
     def authorize(self, packet: dict):
         if self.approved_spec is None:
@@ -80,14 +92,14 @@ class Activities:
             return "PROPOSED: not integrated"
 
         @agent.tool_plain
-        async def send_message(recipient: str, text: str, message_key: str) -> str:
+        async def send_message(recipient: str, text: str, message_key: str, kind: str = "HANDOFF", correlation_id: str | None = None) -> str:
             """Send a bounded message to a defined peer or master; reuse the key on retry."""
             nonlocal sent
             if not message_key or len(message_key) > 64 or sent >= 16:
                 return "DENIED: message budget"
             mid = hashlib.sha256(f"{packet['parent']}:{task['id']}:{packet['attempt']}:{message_key}".encode()).hexdigest()
             sent += 1
-            receipt = await handle.execute_update(GraphRun.send, {**principal, "recipient": recipient, "text": text, "id": mid})
+            receipt = await handle.execute_update(GraphRun.send, {**principal, "recipient": recipient, "text": text, "id": mid, "kind":kind, "correlation_id":correlation_id})
             return json.dumps(receipt)
 
         @agent.tool_plain
@@ -97,21 +109,28 @@ class Activities:
             return json.dumps(messages)
 
         @agent.tool_plain
+        async def wait_messages() -> str:
+            """Wait at most 20 seconds for a peer message; no indefinite loop."""
+            for _ in range(20):
+                messages = await handle.execute_update(GraphRun.inbox, principal)
+                if messages:
+                    return json.dumps(messages)
+                await asyncio.sleep(1)
+            return "[]"
+
+        @agent.tool_plain
         async def acknowledge_message(message_id: str) -> bool:
             """Acknowledge a received peer message after processing it."""
             return await handle.execute_update(GraphRun.ack, {**principal, "id": message_id})
 
-        if task.get("repair_reason"):
-            repair = task["repair_reason"]
-        else:
-            repair = None
+        repair = packet.get("repair_reason")
         assignment = {k: task[k] for k in ("id", "owner", "source", "outcome", "checks", "reads", "writes")}
         assignment["defined_peers"] = packet["agents"]
         assignment["repair_reason"] = repair
         try:
             async with asyncio.timeout(max(1, task["timeout"] - 5)):
                 result = await agent.run(json.dumps(assignment), usage_limits=UsageLimits(
-                    request_limit=task["request_budget"], tool_calls_limit=60))
+                    request_limit=packet.get("remaining_requests",task["request_budget"]), tool_calls_limit=60))
             summary = str(result.output)[:4000]
             if task["writes"] and not edits:
                 return {"disposition": "blocked", "reason": "no authorized proposal", "summary": summary}
