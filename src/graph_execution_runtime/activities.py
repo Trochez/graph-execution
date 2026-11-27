@@ -165,7 +165,7 @@ class Activities:
                 if not checks.get("passed"):return {"accepted":False,"checks":checks}
                 facts=await asyncio.to_thread(coding.finish)
                 if task["writes"] and not facts["edits"]:
-                    return {"accepted":False,"reason":"no authorized edit for write task"}
+                    raise ValueError("no authorized edit for write task")
                 submitted={"disposition":"submitted","summary":summary,**facts,**peer.facts(),
                            "requested_model":expected,"effective_model":None,"attempt":packet["attempt"],
                            "explicit_submission":True}
@@ -181,7 +181,7 @@ class Activities:
             assignment["remaining_requests"]=packet.get("remaining_requests",task["request_budget"])
             assignment["efficient_completion"]="Use work_batch for edits and checks, send HANDOFF directly early if required, and call submit_candidate as soon as complete; then return final answer. The explicit submission is frozen even if the last model request fails."
             assignment["approved_check_argv"]=coding.bundle["check_commands"][task["id"]]
-            assignment["test_protocol"]="For a required failing-before/passing-after test, run the applicable exact approved test argv before changing files and rerun that same argv after repair. Do not substitute pytest for unittest. An approved check is not proof until its exit and output are observed. Use actual install_dependencies for required wheels."
+            assignment["test_protocol"]="For a required failing-before/passing-after test, run the applicable exact approved test argv before changing files and rerun that same argv after repair. Do not substitute pytest for unittest. An approved check is not proof until its exit and output are observed. Use actual install_dependencies for required wheels, including when an approved check needs an import in a read-only review sandbox."
         try:
             if coding:await asyncio.to_thread(coding.start)
             async with asyncio.timeout(max(1, task["timeout"] - 5)):
