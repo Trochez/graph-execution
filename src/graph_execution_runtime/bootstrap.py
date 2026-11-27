@@ -19,7 +19,10 @@ def compile_bundle(planning,bundle_path,extension):
         b=load_bundle(bundle_path)
         if b["extension_sha256"]!=digest(extension):raise PermissionError("cannot change prepared extension")
         return b
-    settings=compile_settings(profile,load_json(tp),load_json(tm),extension)
+    from .runtime_contract import extension_contract
+    tasks,team=load_json(tp),load_json(tm)
+    extension_contract(profile,tasks,team,extension)
+    settings=compile_settings(profile,tasks,team,extension)
     settings["policy_sha256"]=planning["policy_sha256"]
     spec=prepare(planning["run_id"],p.plan,tp,tm,settings)
     from .parallel_contract import check_spec

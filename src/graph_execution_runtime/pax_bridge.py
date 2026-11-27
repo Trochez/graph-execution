@@ -315,6 +315,7 @@ def gexec_policy()->dict:
     master_budget.tool()
     p=planning["profile"]
     return {"paths":p["paths"],"write_paths":p.get("write_paths",p["paths"]),"commands":p["commands"],"checks":p["checks"],"wheels":sorted(p["wheels"]),
+            "master_rule":"The master coordinates, reviews and approves only; every executable task including integration and cleanup must have a non-master owner. Reviewers are read-only. Preserve the validated roles and hierarchy.",
             "capacity":p["capacity"],"required_parallel_roots":p.get("required_parallel_roots",[]),"require_independent_review":p.get("require_independent_review",False),
             "extension_schema":{"master":"agent ID","roles":{"agent ID":"master|worker|reviewer|lead"},
             "parents":{"agent ID":"parent ID or null"},"scopes":{"task ID":{"reads":["exact relative path"],"writes":["exact relative path"],
@@ -340,8 +341,18 @@ def gexec_prepare_autonomous(extension:dict)->dict:
         count=old["failures"]+1
         # Only known fixed messages from our own validation, no credentials or arbitrary text.
         from .parallel_contract import ParallelContractError
-        msg=str(exc) if isinstance(exc,ParallelContractError) else "Check exact scope, role, owner, dependency and approved-check contracts; do not widen authorization."
-        r={"prepared":False,"status":"blocked" if count>=2 else "repair_required","failures":count,"message":msg}
+        from .runtime_contract import RuntimeContractError
+        known={"scope or role coverage":"SCOPE_COVERAGE","unsupported requirement":"UNSUPPORTED_REQUIREMENT","invalid checks":"ACCEPTANCE_CHECKS","invalid scope":"SCOPE_PATH_LIST","invalid hierarchy":"AGENT_HIERARCHY","invalid task or worker owner (master implementation unsupported)":"MASTER_TASK_OWNER","execution extension already frozen":"EXTENSION_FROZEN"}
+        if isinstance(exc,RuntimeContractError):code,msg=exc.code,str(exc)
+        elif isinstance(exc,ParallelContractError):code,msg="TOPOLOGY_CONTRACT",str(exc)
+        else:
+            code=known.get(str(exc),"COMPILE_INPUT_INVALID")
+            msg=str(exc) if str(exc) in known else "Check exact scope, role, owner, dependency and approved-check contracts; do not widen authorization."
+        r={"prepared":False,"status":"blocked" if count>=2 else "repair_required","failures":count,"code":code,"message":msg}
         atomic_json(path,r)
         return r
+    if phase and compile_record.exists():
+        from .pipeline import atomic_json
+        old=load_json(compile_record)
+        atomic_json(compile_record,{**old,"status":"repaired","prepared":True})
     return {"prepared":True,"workflow_id":b["spec"]["workflow_id"],"next":"gexec_start; supervisor will register the worker"}

@@ -50,9 +50,19 @@ class PlanningRepair:
                     if stage==PLAN:check_plan(self.profile,rows["tasks"])
                     elif stage==TEAM and (self.pipeline.run_dir/TEAM/"team-definition.json").is_file():
                         check_team(self.profile,rows["tasks"],json.loads((self.pipeline.run_dir/TEAM/"team-definition.json").read_text()))
+            if self.profile.get("schema")==2 and stage==TEAM:
+                path=self.pipeline.run_dir/TEAM/"team-definition.json"
+                if path.is_file():
+                    from .runtime_contract import team_contract
+                    rows=json.loads((self.pipeline.run_dir/PLAN/"tasks.json").read_text())["tasks"]
+                    team_contract(rows,json.loads(path.read_text()))
             return self.pipeline.finish(stage,evidence)
         except ParallelContractError as exc:return self.reject(stage,PlanningInputError("TOPOLOGY_CONTRACT",str(exc),"tasks.json" if stage==PLAN else "team-definition.json"))
         except PlanningInputError as exc:return self.reject(stage,exc)
+        except ValueError as exc:
+            from .runtime_contract import RuntimeContractError
+            if not isinstance(exc,RuntimeContractError):raise
+            return self.reject(stage,PlanningInputError(exc.code,str(exc),"team-definition.json"))
         except (KeyError,TypeError,AttributeError):
             # Malformed team shape, not a failed system/authorization operation.
             if stage!="backlog-team-designer":raise

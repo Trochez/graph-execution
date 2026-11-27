@@ -78,6 +78,6 @@ def schema(stage):
                     "clusters":[],"agents":[{"id":"M","role":"master"},{"id":"W","role":"worker"}],
                     "task_assignments":[{"task_id":"T01","leaf_cluster_id":"C01","owner_agent_id":"W"}],
                     "schedule":[],"staffing":{},"alternatives":[],"open_questions":[]},
-                "rules":["Use the actual validated task IDs and unchanged dependency edges.","Exactly one owner per task.",
+                "rules":["Use the actual validated task IDs and unchanged dependency edges.","Exactly one non-master owner per task, including integration and cleanup. Master coordinates/reviews/approves only. Reviewers are read-only.",
                          "Fill cluster, staffing, schedule, constraints and alternatives from real task data; examples are not actual assignments."]}
     raise ValueError("unknown planning stage")

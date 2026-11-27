@@ -51,10 +51,12 @@ class MasterBridgeTests(unittest.TestCase):
             team={"agents":[{"id":k,"role":role} for k,role in [("M","master"),("A","worker"),("B","worker"),("R","reviewer")]],
                   "task_assignments":[{"task_id":k,"owner_agent_id":k,"leaf_cluster_id":"C"} for k in ("A","B","R")],
                   "clusters":[],"staffing":{},"schedule":[],"constraints":{},"alternatives":[]}
+            wrong_team=json.loads(json.dumps(team));wrong_team["task_assignments"][0]["owner_agent_id"]="M"
             extension={"master":"M","roles":{a["id"]:a["role"] for a in team["agents"]},
                        "parents":{"M":None,"A":"M","B":"M","R":"M"},
                        "scopes":{t["id"]:{"reads":["src/a.py","src/b.py"] if t["id"]=="R" else [],
                                  "writes":t["write_scope"],"resources":[],"checks":checks} for t in rows}}
+            wrong_extension=json.loads(json.dumps(extension));wrong_extension["scopes"]["A"]["checks"]=[["python","-c","print(123)"]]
             def write(stage,filename,content):
                 return ("gexec_stage_write",{"stage":stage,"filename":filename,"content":content if isinstance(content,str) else json.dumps(content)})
             def begin(stage):return ("gexec_stage_begin",{"stage":stage})
@@ -65,10 +67,12 @@ class MasterBridgeTests(unittest.TestCase):
                         write(PLAN,"tasks.json",{"unit":"hours","tasks":bad}),finish(PLAN),
                         write(PLAN,"tasks.json",{"unit":"hours","tasks":rows}),finish(PLAN)],
                 "team":[skill(TEAM),("gexec_stage_read",{"stage":PLAN,"filename":"tasks.json"}),begin(TEAM),
-                        write(TEAM,"team-definition.md","# Team"),write(TEAM,"team-definition.json",team),
-                        write(TEAM,"task-graph.json",{"tasks":rows,"couplings":[]}),finish(TEAM)],
+                        write(TEAM,"team-definition.md","# Team"),write(TEAM,"team-definition.json",wrong_team),
+                        write(TEAM,"task-graph.json",{"tasks":rows,"couplings":[]}),finish(TEAM),
+                        write(TEAM,"team-definition.json",team),finish(TEAM)],
                 "prepare":[skill("native-plan-executor"),("gexec_skill_reference",{"name":"pax-protocol"}),
                            ("gexec_stage_read",{"stage":TEAM,"filename":"team-definition.json"}),
+                           ("gexec_prepare_autonomous",{"extension":wrong_extension}),
                            ("gexec_prepare_autonomous",{"extension":extension})]}
             try:
                 with patch.dict(os.environ,{"GEXEC_RUN_BUNDLE":str(bp),"GEXEC_PIPELINE_CONFIG":str(cfg),
@@ -84,6 +88,12 @@ class MasterBridgeTests(unittest.TestCase):
                             if phase=="plan" and index==7:
                                 returns=[p.content for m in messages for p in m.parts if p.part_kind=="tool-return" and p.tool_name=="gexec_stage_finish"]
                                 self.assertEqual(returns[-1]["code"],"TOPOLOGY_CONTRACT")
+                            if phase=="team" and index==7:
+                                returns=[p.content for m in messages for p in m.parts if p.part_kind=="tool-return" and p.tool_name=="gexec_stage_finish"]
+                                self.assertEqual(returns[-1]["code"],"MASTER_TASK_OWNER")
+                            if phase=="prepare" and index==4:
+                                returns=[p.content for m in messages for p in m.parts if p.part_kind=="tool-return" and p.tool_name=="gexec_prepare_autonomous"]
+                                self.assertEqual(returns[-1]["code"],"CHECK_NOT_APPROVED")
                             if index==len(script):
                                 return ModelResponse(parts=[TextPart("phase completed")])
                             name,args=script[index];index+=1

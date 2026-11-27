@@ -66,10 +66,9 @@ def main():
                 "actual_worker_failed_and_passed_test":False,"independent_reviewer":False,"overlap":False}
     if r.get("records"):
         run=Path(r["records"])
+        predicates["all_skills_loaded"]=all((run/"skill-loads"/(name+".json")).is_file() for name in ("gexec","critical-path-planner","backlog-team-designer","native-plan-executor"))
         try:
             b=json.loads((run/"bundle.json").read_text());s=json.loads((run/"journal/records/execution.json").read_text())["snapshot"]
-            final=json.loads((run/"journal/records/final-checks.json").read_text())
-            predicates["all_skills_loaded"]=len(list((run/"skill-loads").glob("*.json")))==4
             predicates["peer_ack"]=any(m["status"]=="PROCESSED" and m["sender"]!=b["spec"]["master"] and m["recipient"]!=b["spec"]["master"] for m in s["messages"])
             predicates["independent_reviewer"]=any(b["spec"]["agents"][t["owner"]]["role"]=="reviewer" and not t["writes"] and s["tasks"][k]["status"]=="done" for k,t in b["spec"]["tasks"].items())
             active=set()
@@ -82,7 +81,9 @@ def main():
                 predicates["actual_worker_install"]|=any(c["argv"][:3]==["python","-m","pip"] and c["exit_code"]==0 for c in commands)
                 tests=[c for c in commands if c["argv"][:3]==["python","-m","unittest"]]
                 predicates["actual_worker_failed_and_passed_test"]|=any(t["argv"]==profile["checks"][0] and t["exit_code"] not in (0,None) and any(x["argv"]==t["argv"] and x["exit_code"]==0 for x in tests[i+1:]) for i,t in enumerate(tests))
-            predicates["final_oracle"]=final["passed"] and final["commit"]==r.get("implementation_commit") and any(x.get("argv")==["python","/oracle/verify.py"] and x["exit_code"]==0 for x in final["checks"])
+            if (run/"journal/records/final-checks.json").is_file():
+                final=json.loads((run/"journal/records/final-checks.json").read_text())
+                predicates["final_oracle"]=final["passed"] and final["commit"]==r.get("implementation_commit") and any(x.get("argv")==["python","/oracle/verify.py"] and x["exit_code"]==0 for x in final["checks"])
             if a.scenario=="L02":
                 predicates["both_faults"]=len(facts)==2 and all(f["run_id"]==r.get("run_id") for f in facts)
                 predicates["master_recovered"]=r.get("master_restarts")==1
