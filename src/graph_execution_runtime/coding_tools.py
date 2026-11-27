@@ -102,6 +102,14 @@ class CodingSession:
         return r
     def attach(self,agent):
         @agent.tool_plain
+        async def work_batch(operations:list[dict])->dict:
+            """Execute 1-6 ordered scoped operations. Examples: {op: write,path: ...,content: ...}, {op: delete,path: ...}, {op: read,path: ...}, {op: check,indices: [0]}. Stops on failure; each operation is charged."""
+            return await asyncio.to_thread(self.batch,operations)
+        @agent.tool_plain
+        async def run_approved_checks(indices:list[int])->dict:
+            """Execute selected exact approved argv by zero-based index. Actual exits and bounded output."""
+            return await asyncio.to_thread(self.approved_checks,indices)
+        @agent.tool_plain
         def list_paths()->list[str]:
             """List exact authorized input and output paths."""
             self.budget.tool()
@@ -159,6 +167,45 @@ class CodingSession:
         async def run_tests(argv:list[str])->dict:
             """Run actual approved test argv in the attempt sandbox."""
             return await run_command(argv,60)
+    def approved_checks(self,indices):
+        commands=self.bundle["check_commands"][self.task["id"]]
+        if not isinstance(indices,list) or not 1<=len(indices)<=4 or any(type(i)!=int or not 0<=i<len(commands) for i in indices) or len(set(indices))!=len(indices):
+            return {"denied":True,"reason":"select valid unique approved check indices"}
+        results=[]
+        for i in indices:
+            r=self.run(commands[i],60)
+            results.append({"index":i,"exit_code":r["exit_code"],"output":r["output"][:2048]})
+        return {"results":results,"passed":all(r["exit_code"]==0 for r in results)}
+    def batch(self,operations):
+        """Sequential, scoped operations; every underlying operation is charged."""
+        if not isinstance(operations,list) or not 1<=len(operations)<=6:return {"denied":True}
+        results=[]
+        for item in operations:
+            if not isinstance(item,dict):return {"denied":True,"completed":results}
+            op=item.get("op")
+            try:
+                if op=="write" and set(item)=={"op","path","content"} and isinstance(item["content"],str):
+                    r=self.file_op("write",item["path"],item["content"]);self.repeat(None,True)
+                elif op in ("read","delete") and set(item)=={"op","path"}:
+                    r=self.file_op(op,item["path"])
+                    if op=="delete":self.repeat(None,True)
+                    elif isinstance(r,str):r=r[:4096]
+                elif op=="check" and set(item)=={"op","indices"}:r=self.approved_checks(item["indices"])
+                else:return {"denied":True,"completed":results}
+                results.append(r)
+                if isinstance(r,dict) and (r.get("denied") or r.get("passed") is False):break
+            except (PermissionError,ValueError,TypeError):return {"denied":True,"completed":results}
+        return {"completed":results}
+    def preserve_incomplete(self,reason):
+        """Retain only scoped candidate evidence; never mark submitted or publish."""
+        self.sandbox.close()
+        try:
+            after=scratch_inventory(self.root,self.profile)
+            edits=proposal(self.before,after,self.task["writes"])
+            atomic_json(self.record.with_suffix(".incomplete.json"),{"status":"incomplete_unapproved","reason":reason,
+                "attempt":self.attempt,"base_revision":self.base_revision,"edits":edits,"commands":compact_receipts(self.sandbox.receipts)})
+            return {"retained":True,"edit_paths":[e["path"] for e in edits]}
+        except (ValueError,PermissionError,OSError):return {"retained":False}
     def finish(self):
         # Stop untrusted code before host inspection.
         self.sandbox.close()

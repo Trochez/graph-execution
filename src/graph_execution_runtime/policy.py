@@ -41,7 +41,7 @@ def command(argv, allowed):
 
 def validate_profile(p, root, *, verify_wheels=True):
     fields={"schema","workspace","image","wheelhouse","wheels","paths","commands","checks","final_checks","capacity","timeout","acknowledge","model","base_url","approval","skill_root"}
-    if not isinstance(p,dict) or not fields<=set(p) or set(p)-fields-{"oracle","oracle_files","write_paths","required_parallel_roots","require_independent_review"} or p["schema"]!=2 or p["acknowledge"]!="local-trusted-docker-offline":
+    if not isinstance(p,dict) or not fields<=set(p) or set(p)-fields-{"oracle","oracle_files","write_paths","required_parallel_roots","require_independent_review","required_peer_handoff"} or p["schema"]!=2 or p["acknowledge"]!="local-trusted-docker-offline":
         raise ValueError("invalid profile schema or approval")
     if Path(p["workspace"]).resolve()!=root.resolve():
         raise ValueError("profile belongs to another repository")
@@ -58,6 +58,7 @@ def validate_profile(p, root, *, verify_wheels=True):
         from .scheduler import conflicts
         if not isinstance(pair,list) or len(pair)!=2 or any(not within(safe_path(x),p.get("write_paths",p["paths"])) for x in pair) or conflicts(*pair) or p["capacity"]<2:
             raise ValueError("invalid required parallel root policy")
+    if "required_peer_handoff" in p and (type(p["required_peer_handoff"])!=bool or (p["required_peer_handoff"] and not p.get("required_parallel_roots"))):raise ValueError("invalid peer handoff policy")
     if "require_independent_review" in p and type(p["require_independent_review"])!=bool:raise ValueError("invalid review policy")
     from .config import validate_endpoint
     validate_endpoint(p["base_url"])

@@ -47,6 +47,9 @@ def check_spec(profile,spec):
                    path_hits(tasks[a]["writes"],pair[0]) and path_hits(tasks[b]["writes"],pair[1])
                    for a in initial for b in initial):
             raise ParallelContractError("Compiled root tasks cannot launch concurrently: use distinct owners, disjoint writes/reads and no conflicting resource reservation for the two approved path groups.")
+    if profile.get("required_peer_handoff"):
+        from .worker_protocol import handoff_pairs
+        if len(handoff_pairs(profile,spec))!=1:raise ParallelContractError("Required direct handoff must identify exactly one sender and receiver root task.")
     if profile.get("require_independent_review"):
         rows={k:{"depends_on":t["dependencies"]} for k,t in tasks.items()}
         writers={k for k,t in tasks.items() if t["writes"]}
