@@ -7,8 +7,14 @@ from pathlib import Path
 class Budget:
     def __init__(self,path,actor,request_cap):
         self.path=Path(path);self.actor=actor;self.request_cap=request_cap
+    def rejected(self,code,body_bytes):
+        with sqlite3.connect(self.path,timeout=10) as db:
+            db.execute("CREATE TABLE IF NOT EXISTS rejections(actor TEXT,code TEXT,body_bytes INTEGER)")
+            db.execute("INSERT INTO rejections VALUES (?,?,?)",(self.actor,code,body_bytes))
     def reserve(self,body):
-        if len(body)>60000:raise RuntimeError("conservative input context budget exceeded")
+        if len(body)>60000:
+            self.rejected("CONTEXT_BODY_LIMIT",len(body))
+            raise RuntimeError("conservative input context budget exceeded")
         request=json.loads(body)
         output=request.get("max_completion_tokens",request.get("max_tokens"))
         if type(output)!=int or not 1<=output<=8192:raise RuntimeError("bounded output reservation required")
@@ -38,5 +44,7 @@ class Budget:
             db.execute("CREATE TABLE IF NOT EXISTS tools(actor TEXT NOT NULL)")
             n,t=db.execute("SELECT count(*),coalesce(sum(tokens),0) FROM requests").fetchone()
             tools=db.execute("SELECT count(*) FROM tools").fetchone()[0]
-            return {"reserved_requests":n,"conservative_reserved_tokens":t,"counted_bridge_and_worker_tools":tools,
+            db.execute("CREATE TABLE IF NOT EXISTS rejections(actor TEXT,code TEXT,body_bytes INTEGER)")
+            rejected=[{"actor":a,"code":c,"body_bytes":b} for a,c,b in db.execute("SELECT actor,code,body_bytes FROM rejections")]
+            return {"reserved_requests":n,"conservative_reserved_tokens":t,"counted_bridge_and_worker_tools":tools,"context_rejections":rejected,
                     "requests_by_actor":dict(db.execute("SELECT actor,count(*) FROM requests GROUP BY actor").fetchall())}

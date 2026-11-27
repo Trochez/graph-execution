@@ -68,3 +68,7 @@ All work publishes to a new local gexec-<id> branch, not the original checkout. 
 ### Planning validation recovery
 
 Autonomous stage errors now identify the artifact and reason (for example `DURATION_UNIT_REQUIRED`) in `planning-validation.json`. The master can repair that artifact once without restarting the process. After a second validation failure, the planning stage is blocked and the supervisor stops. The analyzer still rejects missing units, malformed durations, cycles and unknown dependencies; there is no inferred default unit. Previous failed qualification records remain immutable.
+
+### Phase-isolated Pax master
+
+The supervisor now launches separate fresh Pax sessions for planner, team design, scope compilation and execution. It selects the next phase from verified manifest fingerprints and the bundle/final receipt; normal phase transitions are not restarts. Only the current phase's tool schemas are exposed. The total master request ceiling and conservative byte-based request/token reservations are unchanged; rejected request body sizes are recorded without contents. A single unexpected recovery is allowed across the run. The optional frozen profile fields `required_parallel_roots` (two disjoint approved write groups, capacity >=2) and `require_independent_review` enforce the explicit fixture concurrency and review requirements at planning, team and compiled scheduler gates. The fixture's actual plan/oracle and approved checks are unchanged. No tokenizer-specific accounting or arbitrary history truncation is claimed.

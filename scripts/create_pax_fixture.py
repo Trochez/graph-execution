@@ -65,7 +65,7 @@ def main():
     check3=["python","-c","from pathlib import Path; assert not Path('obsolete.txt').exists()"]
     profile={"schema":2,"workspace":str(root),"image":a.image,"wheelhouse":str(wheels),"wheels":{name:hash_file(wheels/name)},
              "paths":["orderlib","order_cli","tests","requirements.txt","obsolete.txt","pyproject.toml"],"write_paths":["orderlib","order_cli","requirements.txt","obsolete.txt","pyproject.toml"],"commands":["python"],"checks":[check1,check2,check3],
-             "final_checks":[check1,["python","/oracle/verify.py"]],"capacity":2,"timeout":1200,"acknowledge":"local-trusted-docker-offline",
+             "final_checks":[check1,["python","/oracle/verify.py"]],"required_parallel_roots":["orderlib/validation.py","order_cli"],"require_independent_review":True,"capacity":2,"timeout":1200,"acknowledge":"local-trusted-docker-offline",
              "model":a.model,"base_url":a.base_url,"approval":str(a.approval.resolve()),"skill_root":str(Path(__file__).resolve().parents[1]),
              "oracle":str(oracle),"oracle_files":{"verify.py":hash_file(oracle/"verify.py")}}
     (out/"profile.json").write_text(json.dumps(profile,indent=2));(out/"profile.json").chmod(0o600)

@@ -5,8 +5,8 @@ from .planning_validation import PlanningInputError
 from .pipeline import atomic_json
 
 class PlanningRepair:
-    def __init__(self,pipeline):
-        self.pipeline=pipeline
+    def __init__(self,pipeline,profile=None):
+        self.pipeline=pipeline;self.profile=profile or {}
         self.path=pipeline.run_dir/"planning-validation.json"
     def state(self):
         return json.loads(self.path.read_text()) if self.path.exists() else {}
@@ -39,7 +39,19 @@ class PlanningRepair:
         return result
     def finish(self,stage,evidence):
         if self.blocked(stage):return self.state()[stage]["last"]
-        try:return self.pipeline.finish(stage,evidence)
+        try:
+            from .parallel_contract import check_plan,check_team,ParallelContractError
+            from .planning_validation import check_tasks
+            from .pipeline import PLAN,TEAM
+            if self.profile.get("required_parallel_roots") or self.profile.get("require_independent_review"):
+                path=self.pipeline.run_dir/PLAN/"tasks.json"
+                if path.is_file():
+                    rows=json.loads(path.read_text());check_tasks(rows)
+                    if stage==PLAN:check_plan(self.profile,rows["tasks"])
+                    elif stage==TEAM and (self.pipeline.run_dir/TEAM/"team-definition.json").is_file():
+                        check_team(self.profile,rows["tasks"],json.loads((self.pipeline.run_dir/TEAM/"team-definition.json").read_text()))
+            return self.pipeline.finish(stage,evidence)
+        except ParallelContractError as exc:return self.reject(stage,PlanningInputError("TOPOLOGY_CONTRACT",str(exc),"tasks.json" if stage==PLAN else "team-definition.json"))
         except PlanningInputError as exc:return self.reject(stage,exc)
         except (KeyError,TypeError,AttributeError):
             # Malformed team shape, not a failed system/authorization operation.

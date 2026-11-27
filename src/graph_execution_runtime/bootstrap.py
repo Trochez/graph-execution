@@ -22,6 +22,8 @@ def compile_bundle(planning,bundle_path,extension):
     settings=compile_settings(profile,load_json(tp),load_json(tm),extension)
     settings["policy_sha256"]=planning["policy_sha256"]
     spec=prepare(planning["run_id"],p.plan,tp,tm,settings)
+    from .parallel_contract import check_spec
+    check_spec(profile,spec)
     journal=run/"journal";journal.mkdir(mode=0o700,exist_ok=True)
     extension_path=run/"execution-spec.json"
     if extension_path.exists():

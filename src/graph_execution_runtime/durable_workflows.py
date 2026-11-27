@@ -216,9 +216,9 @@ class GraphRun:
                   "attempt": attempt, "model": self.spec.get("agent_models",{}).get(self.spec["tasks"][key]["owner"],self.spec["model"]), "agents": list(self.spec["agents"]),
                   "source_hashes": self.spec["source_hashes"], "repair_reason": s.get("repair_reason"),
                   "remaining_requests": self.spec["tasks"][key]["request_budget"] - s.get("used_requests",0)}
-        if self.spec.get("runtime_version")==2:
-            # Conservatively partition per-task requests across at most two attempts.
-            packet["remaining_requests"]=max(1,packet["task"]["request_budget"]//2)
+        # The v2 live HTTP Budget ledger enforces the task-wide request cap
+        # across attempts, including interrupted requests. Do not arbitrarily
+        # halve the first attempt: a real test/repair/handoff may need >6 turns.
         self.transition(key, "in_progress")
         try:
             child = await workflow.start_child_workflow(AgentSession.run, packet,

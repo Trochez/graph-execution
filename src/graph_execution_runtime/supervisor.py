@@ -106,51 +106,37 @@ async def execute(args):
         if not px.is_file():raise RuntimeError("Pax not installed in runtime environment")
         env=dict(os.environ,GEXEC_RUN_BUNDLE=str(bundle_path),GEXEC_PIPELINE_CONFIG=str(run/"planning.json"),
                  GEXEC_TEMPORAL_ADDRESS="localhost:7233",PYTHON_DOTENV_DISABLED="1",PYDANTIC_AI_NO_BANNER="1")
-        prompt=("Use the four actual gexec skills. Call gexec_load_skill('gexec'), gexec_pipeline_init, "
-                "gexec_plan_source, gexec_inventory and gexec_policy. Load critical-path-planner and generate its exact "
-                "required artifacts using the stage tools. tasks.json MUST be an object with nonempty top-level unit (actual common duration unit), tasks array and numeric duration per task. Use the schema returned when loading the skill. If validation returns repair_required, fix the named artifact and retry validation once; if blocked, stop. Verify and finish it. Load backlog-team-designer, "
-                "generate and verify its artifacts without altering the DAG. Load native-plan-executor, "
-                "call gexec_prepare_autonomous with exact scopes and approved checks. Call gexec_start after "
-                "the supervisor registers the worker. Inspect every proposal using gexec_proposal, then explicitly "
-                "approve valid proposals with gexec_review_and_verify. For pending work use gexec_wait. "
-                "When all tasks are done and workflow finished, call gexec_finalize. Never claim completion without actual checks. "
-                "Use small tasks with disjoint writes where possible, require peer communication when the plan requires it, "
-                "and reserve an independent read-only reviewer. Do not manually create a settings file.")
+        from .master_phases import run_phases
+        pipe=Pipeline(plan,run,Path(p["skill_root"]))
+        def record_phase(phase,attempt,recovered):
+            nonlocal restart
+            restart=recovered
+            result["stage"]="master_"+phase
+            atomic_json(run/"master-phase.json",{"phase":phase,"attempt":attempt,"restarts":recovered})
+        async def launch(phase,attempt,limit,prompt):
+            nonlocal process,stop_requested
+            # Keep the execution master PID naming stable for the L02 harness;
+            # normal planning phase transitions are not fault recoveries.
+            tag=str(attempt) if phase=="execute" else phase+"-"+str(attempt)
+            log=run/f"pax-{tag}.log"
+            fd=os.open(log,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+            with os.fdopen(fd,"wb") as stream:
+                phase_env=dict(env,GEXEC_MASTER_PHASE=phase)
+                process=await asyncio.create_subprocess_exec(str(px),"--agent","graph_execution_runtime.pax_bridge:agent",
+                    "--database",str(run/f"pax-{tag}.db"),"--request-limit",str(limit),"-p",prompt,
+                    cwd=run,env=phase_env,stdout=stream,stderr=asyncio.subprocess.STDOUT)
+                atomic_json(run/f"master-{tag}.json",{"pid":process.pid,"generation":attempt,"phase":phase,"request_cap":limit})
+                while process.returncode is None:
+                    if (run/"cancel.request").exists():
+                        stop_requested=True;raise RuntimeError("operator cancellation")
+                    if phase=="execute":await ensure_worker()
+                    try:await asyncio.wait_for(process.wait(),timeout=.5)
+                    except asyncio.TimeoutError:pass
+            atomic_json(run/f"master-exit-{tag}.json",{"phase":phase,"attempt":attempt,"exit_code":process.returncode})
+        def remaining():
+            return 60-budget.summary()["requests_by_actor"].get("master",0)
         async with asyncio.timeout(max(1,p["timeout"]-90)):
-            for generation in (1,2):
-                result["stage"]="master_execution"
-                limit=40 if generation==1 else 20
-                if generation==2:
-                    restart=1
-                    prompt=("Recover the same existing run. Use gexec_pipeline_init to inspect the persisted stages. "
-                            "Do not regenerate completed stages or restart completed tasks. If a bundle exists call "
-                            "gexec_start to attach to the same workflow and inspect status; otherwise continue the active planning stage. "
-                            "Complete explicit reviews and final checks. Do not duplicate integration. "+prompt)
-                log=run/f"pax-{generation}.log"
-                fd=os.open(log,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
-                with os.fdopen(fd,"wb") as stream:
-                    process=await asyncio.create_subprocess_exec(str(px),"--agent","graph_execution_runtime.pax_bridge:agent",
-                        "--database",str(run/"pax.db"),"--request-limit",str(limit),"-p",prompt,
-                        cwd=run,env=env,stdout=stream,stderr=asyncio.subprocess.STDOUT)
-                    atomic_json(run/f"master-{generation}.json",{"pid":process.pid,"generation":generation,"request_cap":limit})
-                    while process.returncode is None:
-                        if (run/"cancel.request").exists():
-                            stop_requested=True;raise RuntimeError("operator cancellation")
-                        await ensure_worker()
-                        try:await asyncio.wait_for(process.wait(),timeout=.5)
-                        except asyncio.TimeoutError:pass
-                    await ensure_worker()
-                validation=run/"planning-validation.json"
-                if validation.exists():
-                    failures=load_json(validation)
-                    terminal=[v["last"] for v in failures.values() if v.get("terminal")]
-                    if terminal:
-                        result["planning_failure"]=terminal[0]
-                        raise RuntimeError("focused planning repair exhausted")
-                final=run/"journal/records/final-checks.json"
-                if process.returncode==0 and final.is_file() and load_json(final)["passed"]:
-                    break
-                if generation==2:raise RuntimeError("master did not complete within bounded recovery")
+            restart=await run_phases(pipe,bundle_path,run/"journal/records/final-checks.json",launch,remaining,record_phase)
             result["stage"]="final_verification"
             controller=Controller(client,bundle_path)
             s=await controller.status()
@@ -170,6 +156,7 @@ async def execute(args):
         await supervise()
     except (Exception,KeyboardInterrupt,asyncio.CancelledError) as exc:
         result.update(decision="NO_GO",error_type=type(exc).__name__)
+        if (run/"master-phase.json").is_file():result["master_phase"]=load_json(run/"master-phase.json")
         if (run/"planning-validation.json").is_file():
             result["planning_validation"]=load_json(run/"planning-validation.json")
     finally:
