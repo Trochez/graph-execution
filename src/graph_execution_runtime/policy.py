@@ -27,6 +27,44 @@ def safe_path(path):
 def within(path, prefixes):
     return any(path==p or path.startswith(p+"/") for p in prefixes)
 
+def validate_directory_files(profile):
+    """Explicit, bounded file inventory for declared directory groups."""
+    mapping=profile.get("directory_files",{})
+    if not isinstance(mapping,dict) or len(mapping)>30:
+        raise ValueError("invalid directory file mapping")
+    groups=list(mapping)
+    for group,files in mapping.items():
+        if not within(safe_path(group),profile["paths"]):
+            raise ValueError("directory group outside approved paths")
+        if any(other!=group and within(group,[other]) for other in groups):
+            raise ValueError("nested directory groups are ambiguous")
+        if not isinstance(files,list) or not 1<=len(files)<=20 or any(type(f)!=str for f in files) or len(set(files))!=len(files):
+            raise ValueError("invalid directory file targets")
+        for f in files:
+            if not safe_path(f).startswith(group+"/") or not within(f,profile["paths"]):
+                raise ValueError("directory file target outside group")
+            if any(other!=f and within(other,[f]) for other in files):
+                raise ValueError("directory file targets overlap")
+        if profile.get("workspace"):
+            root=Path(profile["workspace"])
+            if (root/group).is_file() or any((root/f).is_dir() for f in files):
+                raise ValueError("directory mapping conflicts with existing file layout")
+
+def exact_file_path(profile,path,*,write=False):
+    """Reject directory tokens as files; no implicit discovery or expansion."""
+    safe_path(path)
+    for group,files in profile.get("directory_files",{}).items():
+        if path==group or any(f.startswith(path+"/") for f in files):
+            raise ValueError("directory token is not an exact file path")
+        if within(path,[group]) and path not in files:
+            raise ValueError("file target is not declared in directory mapping")
+    if profile.get("workspace") and (Path(profile["workspace"])/path).is_dir():
+        raise ValueError("existing directory is not an exact file path")
+    allowed=profile.get("write_paths",profile["paths"]) if write else profile["paths"]
+    if not within(path,allowed) or not within(path,profile["paths"]):
+        raise PermissionError("file target outside approved scope")
+    return path
+
 def required_check_indices(profile,writes):
     """Operator-approved write-group checks, matched only to actual write paths."""
     return sorted({i for group,indices in profile.get("required_checks_by_write_group",{}).items()
@@ -55,7 +93,7 @@ def command(argv, allowed):
 
 def validate_profile(p, root, *, verify_wheels=True):
     fields={"schema","workspace","image","wheelhouse","wheels","paths","commands","checks","final_checks","capacity","timeout","acknowledge","model","base_url","approval","skill_root"}
-    if not isinstance(p,dict) or not fields<=set(p) or set(p)-fields-{"oracle","oracle_files","write_paths","required_parallel_roots","require_independent_review","required_peer_handoff","required_checks_by_write_group"} or p["schema"]!=2 or p["acknowledge"]!="local-trusted-docker-offline":
+    if not isinstance(p,dict) or not fields<=set(p) or set(p)-fields-{"oracle","oracle_files","write_paths","required_parallel_roots","require_independent_review","required_peer_handoff","required_checks_by_write_group","directory_files"} or p["schema"]!=2 or p["acknowledge"]!="local-trusted-docker-offline":
         raise ValueError("invalid profile schema or approval")
     if Path(p["workspace"]).resolve()!=root.resolve():
         raise ValueError("profile belongs to another repository")
@@ -83,6 +121,7 @@ def validate_profile(p, root, *, verify_wheels=True):
     for argv in p["checks"]+p["final_checks"]:command(argv,p["commands"])
     if len(p["checks"])>16 or len(p["final_checks"])>8:raise ValueError("verification command budget")
     validate_required_checks(p)
+    validate_directory_files(p)
     if type(p["capacity"])!=int or not 1<=p["capacity"]<=3 or type(p["timeout"])!=int or not 60<=p["timeout"]<=1200:
         raise ValueError("run budget outside supported limits")
     wheelhouse=Path(p["wheelhouse"]).resolve(strict=True)
@@ -129,10 +168,8 @@ def compile_settings(profile, tasks, team, extension):
     for t in rows:
         k=t["id"];s=extension["scopes"][k]
         if set(s)!={"reads","writes","resources","checks"}:raise ValueError("invalid task scope schema")
-        for path in s["reads"]+s["writes"]:
-            if not within(safe_path(path),profile["paths"]):raise PermissionError("scope escalation")
-        for path in s["writes"]:
-            if not within(path,profile.get("write_paths",profile["paths"])):raise PermissionError("write scope escalation")
+        for path in s["reads"]:exact_file_path(profile,path)
+        for path in s["writes"]:exact_file_path(profile,path,write=True)
         if not isinstance(s["reads"],list) or not isinstance(s["writes"],list) or not isinstance(s["resources"],list) or any(type(x)!=str or len(x)>80 for x in s["resources"]):raise ValueError("invalid scope types")
         if not isinstance(s["checks"],list) or not 1<=len(s["checks"])<=4:raise ValueError("independent task checks required")
         for argv in s["checks"]:

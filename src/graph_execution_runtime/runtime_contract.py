@@ -5,7 +5,7 @@ The compiler and early team gate share the same ownership constraints.
 """
 from __future__ import annotations
 import re
-from .policy import safe_path,within,required_check_indices
+from .policy import safe_path,within,required_check_indices,exact_file_path
 
 class RuntimeContractError(ValueError):
     def __init__(self,code,message):
@@ -90,6 +90,8 @@ def extension_contract(profile,tasks,team,extension):
                 allowed=profile.get("write_paths",profile["paths"]) if field=="writes" else profile["paths"]
                 if not within(v,allowed) or not within(v,profile["paths"]):
                     fail("SCOPE_NOT_APPROVED",f"Task {k}: {field}[{i}] is outside the approved project policy. Narrow the scope; never widen authorization.")
+                try:exact_file_path(profile,v,write=field=="writes")
+                except ValueError:fail("EXACT_FILE_REQUIRED",f"Task {k}: {field}[{i}] must be an exact file target, not a directory or undeclared child.")
         if roles[owners[k]]=="reviewer" and s["writes"]:
             fail("REVIEWER_WRITES",f"Task {k}: reviewer scope must contain no writes.")
         if not isinstance(s["resources"],list) or any(type(x)!=str or len(x)>80 for x in s["resources"]):

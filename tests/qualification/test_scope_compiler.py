@@ -1,5 +1,7 @@
 """Regression reproducing VAL/CLI/DELETE competing roots from live L01."""
 import copy
+import tempfile
+from pathlib import Path
 import unittest
 from graph_execution_runtime.scope_compiler import normalize_extension,root_priorities
 from graph_execution_runtime.runtime_contract import RuntimeContractError
@@ -54,3 +56,36 @@ class ScopeCompilerTests(unittest.TestCase):
     def test_unapproved_read_cannot_be_laundered(self):
         self.compact["scopes"]["CLI"]["reads"].append("secrets.txt")
         with self.assertRaises(RuntimeContractError):self.compile()
+
+    def test_live_directory_alias_resolves_to_exact_module(self):
+        self.profile["directory_files"]={"order_cli":["order_cli/__main__.py"]}
+        self.compact["scopes"]["CLI"]["writes"]=["order_cli"]
+        self.compact["scopes"]["INTEGRATE"]["reads"]=["orderlib/validation.py","order_cli"]
+        ext,record,spec=self.compile()
+        self.assertEqual(ext["scopes"]["CLI"]["writes"],["order_cli/__main__.py"])
+        self.assertEqual(ext["scopes"]["INTEGRATE"]["reads"],["orderlib/validation.py","order_cli/__main__.py"])
+        self.assertEqual(record["resolved_directories"],[
+            {"task":"CLI","field":"writes","directory":"order_cli","files":["order_cli/__main__.py"]},
+            {"task":"INTEGRATE","field":"reads","directory":"order_cli","files":["order_cli/__main__.py"]}])
+        check_spec(self.profile,spec)
+    def test_undeclared_directory_child_rejected(self):
+        self.profile["directory_files"]={"order_cli":["order_cli/__main__.py"]}
+        self.compact["scopes"]["CLI"]["writes"]=["order_cli/other.py"]
+        with self.assertRaises(RuntimeContractError) as ctx:self.compile()
+        self.assertEqual(ctx.exception.code,"EXACT_FILE_REQUIRED")
+    def test_full_extension_cannot_treat_directory_as_file(self):
+        self.profile["directory_files"]={"order_cli":["order_cli/__main__.py"]}
+        ext,_,_=self.compile()
+        ext["scopes"]["CLI"]["writes"]=["order_cli"]
+        with self.assertRaises(RuntimeContractError) as ctx:normalize_extension(self.profile,self.tasks,self.team,ext)
+        self.assertEqual(ctx.exception.code,"EXACT_FILE_REQUIRED")
+    def test_unmapped_existing_directory_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d)/"order_cli").mkdir()
+            self.profile["workspace"]=d
+            self.compact["scopes"]["CLI"]["writes"]=["order_cli"]
+            with self.assertRaises(RuntimeContractError) as ctx:self.compile()
+            self.assertEqual(ctx.exception.code,"EXACT_FILE_REQUIRED")
+    def test_mapping_cannot_escape_declared_group(self):
+        self.profile["directory_files"]={"order_cli":["obsolete.txt"]}
+        with self.assertRaises(ValueError):self.compile()

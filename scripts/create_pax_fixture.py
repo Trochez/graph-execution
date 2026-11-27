@@ -52,6 +52,7 @@ if __name__=="__main__":unittest.main()
 CLI_COMPONENT_CHECK = """import contextlib,io,json,runpy,sys,types
 from pathlib import Path
 import orderlib,gexec_fixture_units as units
+assert Path('order_cli/__main__.py').is_file(),'CLI module file missing'
 assert units.__version__=='1.0.0'
 assert 'gexec-fixture-units==1.0.0' in Path('requirements.txt').read_text().splitlines()
 real_cents=units.cents
@@ -110,7 +111,7 @@ def main():
     check3=["python","-c","from pathlib import Path; assert not Path('obsolete.txt').exists()"]
     profile={"schema":2,"workspace":str(root),"image":a.image,"wheelhouse":str(wheels),"wheels":{name:hash_file(wheels/name)},
              "paths":["orderlib","order_cli","tests","requirements.txt","obsolete.txt","pyproject.toml"],"write_paths":["orderlib","order_cli","requirements.txt","obsolete.txt","pyproject.toml"],"commands":["python"],"checks":[check1,check2,check3],
-             "final_checks":[check1,["python","/oracle/verify.py"]],"required_parallel_roots":["orderlib/validation.py","order_cli"],"require_independent_review":True,"required_peer_handoff":True,"required_checks_by_write_group":{"orderlib/validation.py":[0],"order_cli":[1],"obsolete.txt":[2]},"capacity":2,"timeout":1200,"acknowledge":"local-trusted-docker-offline",
+             "final_checks":[check1,["python","/oracle/verify.py"]],"required_parallel_roots":["orderlib/validation.py","order_cli"],"require_independent_review":True,"required_peer_handoff":True,"directory_files":{"order_cli":["order_cli/__main__.py"]},"required_checks_by_write_group":{"orderlib/validation.py":[0],"order_cli":[1],"obsolete.txt":[2]},"capacity":2,"timeout":1200,"acknowledge":"local-trusted-docker-offline",
              "model":a.model,"base_url":a.base_url,"approval":str(a.approval.resolve()),"skill_root":str(Path(__file__).resolve().parents[1]),
              "oracle":str(oracle),"oracle_files":{"verify.py":hash_file(oracle/"verify.py")}}
     (out/"profile.json").write_text(json.dumps(profile,indent=2));(out/"profile.json").chmod(0o600)

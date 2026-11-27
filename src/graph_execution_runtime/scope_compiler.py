@@ -8,7 +8,7 @@ from copy import deepcopy
 from .runtime_contract import team_contract,extension_contract,fail
 from .parallel_contract import plan_candidates
 from .scheduler import conflicts
-from .policy import within,safe_path,required_check_indices
+from .policy import within,safe_path,required_check_indices,exact_file_path,validate_directory_files
 
 def compact_contract(profile,tasks,team):
     rows=tasks["tasks"]
@@ -19,14 +19,17 @@ def compact_contract(profile,tasks,team):
             "required_root_pairs":pairs,"checks_by_index":profile["checks"],
             "required_peer_handoff":bool(profile.get("required_peer_handoff")),
             "required_checks_by_write_group":profile.get("required_checks_by_write_group",{}),
+            "directory_files":profile.get("directory_files",{}),
             "task_write_groups":{t["id"]:t.get("write_scope",[]) for t in rows},
             "rules":["Supply only scopes with reads, writes, check_indices. Inherit hierarchy and scheduled resources.",
                      "Each task selects 1 to 4 approved zero-based check indices.",
                      "Writes must be exact files within the task's planned write groups; read-only tasks cannot write.",
+                     "A declared directory group resolves only to its explicit directory_files targets; never create a file at the directory name.",
                      "For the required direct HANDOFF, the receiving root must not reserve the sender's concurrently written files; get the contract through the peer message.",
                      "Integration/review may read completed prerequisite outputs."]}
 
 def normalize_extension(profile,tasks,team,submitted):
+    validate_directory_files(profile)
     if not isinstance(submitted,dict):fail("EXTENSION_FIELDS","Provide an object containing scopes.")
     if set(submitted)!={"scopes"}:
         # Existing full extension remains supported; do not change its declared
@@ -47,7 +50,7 @@ def normalize_extension(profile,tasks,team,submitted):
             fail("SCHEDULE_RESOURCES","Frozen schedule resources must be bounded strings.")
         schedule.setdefault(k,set()).update(resources)
     output={"master":c["master"],"roles":c["roles"],"parents":c["parents"],"scopes":{}}
-    added_checks=[]
+    added_checks=[];resolved_directories=[]
     for t in rows:
         k=t["id"];s=scopes[k]
         if not isinstance(s,dict) or set(s)!={"reads","writes","check_indices"}:
@@ -58,6 +61,27 @@ def normalize_extension(profile,tasks,team,submitted):
         for field in ("reads","writes"):
             if not isinstance(s[field],list) or any(type(p)!=str for p in s[field]):
                 fail("SCOPE_PATH_LIST",f"Task {k}: {field} must contain exact relative file paths.")
+        # Expand only exact, operator-declared directory aliases, not arbitrary
+        # prefixes. Validate both the requested alias and its resolved targets.
+        resolved={}
+        for field in ("reads","writes"):
+            values=[]
+            for path in s[field]:
+                allowed=profile.get("write_paths",profile["paths"]) if field=="writes" else profile["paths"]
+                try:
+                    safe_path(path)
+                    if not within(path,allowed) or not within(path,profile["paths"]):raise PermissionError("scope escalation")
+                    targets=profile.get("directory_files",{}).get(path,[path])
+                    for target in targets:exact_file_path(profile,target,write=field=="writes")
+                except PermissionError:
+                    fail("SCOPE_NOT_APPROVED",f"Task {k}: {field} contains an unauthorized file or directory.")
+                except (ValueError,TypeError):
+                    fail("EXACT_FILE_REQUIRED",f"Task {k}: {field} must use exact files or a declared directory alias from gexec_policy.")
+                if path in profile.get("directory_files",{}):
+                    resolved_directories.append({"task":k,"field":field,"directory":path,"files":targets})
+                values.extend(targets)
+            resolved[field]=list(dict.fromkeys(values))
+        s={**s,**resolved}
         groups=t.get("write_scope",[])
         if not isinstance(groups,list) or any(type(g)!=str for g in groups):
             fail("PLAN_WRITE_GROUPS",f"Task {k}: planned write groups must be a list of paths.")
@@ -88,7 +112,7 @@ def normalize_extension(profile,tasks,team,submitted):
             b["reads"]=[p for p in b["reads"] if p not in overlap]
             removed=[{"task":receiver,"path":p,"reason":"required_direct_peer_handoff"} for p in sorted(overlap)]
     extension_contract(profile,tasks,team,output)
-    return output,{"format":"compact","narrowed_peer_reads":removed,"added_required_checks":added_checks}
+    return output,{"format":"compact","narrowed_peer_reads":removed,"added_required_checks":added_checks,"resolved_directories":resolved_directories}
 
 def root_priorities(profile,tasks,team,scopes):
     """Give the required pair the first available slots, never waive conflicts."""
