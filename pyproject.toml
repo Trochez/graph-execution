@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graph-execution-runtime"
+version = "0.1.0.dev0"
+description = "Experimental multi-host graph execution contracts"
+requires-python = ">=3.12"
+dependencies = ["pydantic==2.14.4"]
+
+[project.scripts]
+gexec = "graph_execution_runtime.supervisor:main"
+
+[project.optional-dependencies]
+pax = [
+    "pydantic-ai-pax==0.74.0",
+    "pydantic-ai-harness==0.74.0",
+    "pydantic-ai-slim[temporal]==2.74.0",
+    "pydantic-graph==2.74.0",
+    "temporalio==1.36.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

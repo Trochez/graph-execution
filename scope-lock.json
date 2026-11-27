@@ -1,0 +1,49 @@
+{
+  "plan_id": "PAX-GEXEC-FINAL-1",
+  "plan_sha256": "2b67422351e0cceb2ec2e2da45a5eba13df350c3beb95fddaa2dfa76339557ae",
+  "plan_bytes": 62777,
+  "repository": "Trochez/graph-execution",
+  "branch": "feat/pax-durable-multicli",
+  "baseline_commit": "46cf17809704a0ce2bdf84b6f82c48b75e100d6d",
+  "main_commit": "9ff68208acbbb822f30784f130e23c9db446dcfa",
+  "scope": "macOS, Python 3.12, Pax 0.74.0, local Temporal, approved OpenAI-compatible OmniRoute route, Docker-isolated Python projects, offline hash-verified dependencies",
+  "excluded": [
+    "live Codex/Cline qualification",
+    "unrestricted host commands",
+    "remote multi-tenant infrastructure",
+    "automatic merge/push of target changes"
+  ],
+  "baseline_ci": [
+    {
+      "id": 45888464419,
+      "name": "Pax durable runtime integration",
+      "conclusion": "success",
+      "sha": "46cf17809704a0ce2bdf84b6f82c48b75e100d6d"
+    },
+    {
+      "id": 45888464414,
+      "name": "Preflight legacy baseline",
+      "conclusion": "success",
+      "sha": "46cf17809704a0ce2bdf84b6f82c48b75e100d6d"
+    },
+    {
+      "id": 45888464604,
+      "name": "Candidate runtime contracts",
+      "conclusion": "success",
+      "sha": "46cf17809704a0ce2bdf84b6f82c48b75e100d6d"
+    }
+  ],
+  "prior_live_executor": {
+    "source": "operator-reported, not independently collected",
+    "sha": "46cf17809704a0ce2bdf84b6f82c48b75e100d6d",
+    "result": "PASS",
+    "tasks_done": 4,
+    "peer_ack": true,
+    "final_checks": true,
+    "pax_exit": 0,
+    "scope": "restricted standalone executor fixture only"
+  },
+  "new_scope_frozen": false,
+  "prerequisites_pass": false,
+  "source_preserved": true
+}

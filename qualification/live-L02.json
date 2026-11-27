@@ -1,0 +1,9 @@
+{
+  "plan_id": "PAX-GEXEC-FINAL-1",
+  "candidate_commit": "46cf17809704a0ce2bdf84b6f82c48b75e100d6d",
+  "scenario": "L02",
+  "status": "NOT_RUN",
+  "reason": "G0 failed; G2 not admitted; actual live environment and approved route unavailable",
+  "live_model_calls": 0,
+  "live_runs_used": 0
+}

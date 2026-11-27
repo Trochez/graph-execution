@@ -1,0 +1,25 @@
+{
+  "plan_id": "PAX-GEXEC-FINAL-1",
+  "task": "P02",
+  "result": "BLOCKED",
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "docker_executable_present": false,
+    "docker_socket_present": false,
+    "macos_actual_host_accessible": false
+  },
+  "checks": {
+    "approved_image_digest": "NOT_VERIFIED",
+    "offline_wheelhouse_inventory": "NOT_VERIFIED",
+    "non_root_container": "NOT_RUN",
+    "offline_network": "NOT_RUN",
+    "resource_limits": "NOT_RUN",
+    "mount_policy": "NOT_RUN",
+    "cleanup": "NOT_RUN"
+  },
+  "model_calls": 0,
+  "blocker_ids": [
+    "G0-D1"
+  ]
+}
