@@ -43,6 +43,12 @@ class PlanningRepair:
             from .parallel_contract import check_plan,check_team,ParallelContractError
             from .planning_validation import check_tasks
             from .pipeline import PLAN,TEAM
+            if self.profile.get("schema")==2 and stage==TEAM:
+                path=self.pipeline.run_dir/TEAM/"team-definition.json"
+                if path.is_file():
+                    from .runtime_contract import team_contract
+                    rows=json.loads((self.pipeline.run_dir/PLAN/"tasks.json").read_text())["tasks"]
+                    team_contract(rows,json.loads(path.read_text()))
             if self.profile.get("required_parallel_roots") or self.profile.get("require_independent_review"):
                 path=self.pipeline.run_dir/PLAN/"tasks.json"
                 if path.is_file():
@@ -50,12 +56,6 @@ class PlanningRepair:
                     if stage==PLAN:check_plan(self.profile,rows["tasks"])
                     elif stage==TEAM and (self.pipeline.run_dir/TEAM/"team-definition.json").is_file():
                         check_team(self.profile,rows["tasks"],json.loads((self.pipeline.run_dir/TEAM/"team-definition.json").read_text()))
-            if self.profile.get("schema")==2 and stage==TEAM:
-                path=self.pipeline.run_dir/TEAM/"team-definition.json"
-                if path.is_file():
-                    from .runtime_contract import team_contract
-                    rows=json.loads((self.pipeline.run_dir/PLAN/"tasks.json").read_text())["tasks"]
-                    team_contract(rows,json.loads(path.read_text()))
             return self.pipeline.finish(stage,evidence)
         except ParallelContractError as exc:return self.reject(stage,PlanningInputError("TOPOLOGY_CONTRACT",str(exc),"tasks.json" if stage==PLAN else "team-definition.json"))
         except PlanningInputError as exc:return self.reject(stage,exc)
