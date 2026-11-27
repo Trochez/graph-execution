@@ -113,7 +113,12 @@ def gexec_stage_write(stage: str, filename: str, content: str) -> str | dict:
 @phase_tool
 def gexec_stage_read(stage: str, filename: str) -> str:
     """Read a named planning artifact or deterministic analyzer result."""
-    return planning_pipeline().get(stage,filename)
+    try:return planning_pipeline().get(stage,filename)
+    except (PermissionError,FileNotFoundError):
+        if not phase:raise
+        from .pipeline import OUTPUTS,DERIVED
+        names={k:list(v)+([DERIVED[k][1]] if k in DERIVED else []) for k,v in OUTPUTS.items()}
+        return "DENIED: unknown or missing artifact. Allowed planning filenames: "+json.dumps(names,separators=(",",":"))
 
 @phase_tool
 def gexec_stage_finish(stage: str, evidence: str) -> dict:

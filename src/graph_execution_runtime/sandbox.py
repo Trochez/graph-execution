@@ -42,7 +42,13 @@ class Sandbox:
                 for name,d in self.profile["oracle_files"].items():
                     if hash_file(path/name)!=d:raise ValueError("oracle hash changed")
                 oracle=["--mount",f"type=bind,src={path},dst=/oracle,readonly"]
-            docker(["run","--detach","--name",self.name,"--pull=never","--network=none","--read-only",
+            owner=os.environ.get("GEXEC_SANDBOX_RUN_ID")
+            labels=[]
+            if owner:
+                import re
+                if not re.fullmatch(r"gexec-[a-f0-9]{32}",owner):raise ValueError("invalid sandbox owner")
+                labels=["--label","io.gexec.run="+owner]
+            docker(["run","--detach","--name",self.name,*labels,"--pull=never","--network=none","--read-only",
                 "--cap-drop=ALL","--security-opt=no-new-privileges","--pids-limit=64","--memory=512m","--cpus=1",
                 "--user",f"{os.getuid()}:{os.getgid()}","--tmpfs","/tmp:rw,noexec,nosuid,size=64m",
                 "--mount",f"type=bind,src={self.root},dst=/work",

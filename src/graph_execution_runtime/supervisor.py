@@ -40,7 +40,8 @@ def terminal(path,result):
     return result
 
 async def execute(args):
-    from .operator import discover_models,local_address,run_worker,Controller
+    from .operator import discover_models,local_address,Controller
+    from .process_control import stop_owned_process,remove_run_containers
     from .sandbox import Sandbox
     from temporalio.client import Client
     from temporalio.service import RPCError
@@ -50,6 +51,8 @@ async def execute(args):
     run_id="gexec-"+uuid4().hex;run=run_path(run_id)
     if run.resolve().is_relative_to(root):raise ValueError("run records must be outside workspace")
     run.mkdir(mode=0o700,parents=True,exist_ok=False)
+    private_json(run/"run-identity.json",{"run_id":run_id,"workspace":str(root),"original_plan":str(original)})
+    os.environ["GEXEC_SANDBOX_RUN_ID"]=run_id
     result={"run_id":run_id,"decision":"NO_GO","stage":"preflight","effective_model":"unknown"}
     worker=None;process=None;client=None;bundle_path=run/"bundle.json";controller=None
     stage=None;budget=Budget(run/"budget.db","master",60)
@@ -58,25 +61,29 @@ async def execute(args):
     restart=0
     stop_requested=False
     async def stop_process():
-        nonlocal process
-        if process and process.returncode is None:
-            process.terminate()
-            try:await asyncio.wait_for(process.wait(),timeout=5)
-            except asyncio.TimeoutError:process.kill();await process.wait()
+        await stop_owned_process(process)
     async def ensure_worker():
         nonlocal worker
-        if worker and worker.done():worker.result()
-        if worker is None and bundle_path.exists():
-            event=asyncio.Event()
-            worker=asyncio.create_task(run_worker(bundle_path,"localhost:7233",event))
-            wait=asyncio.create_task(event.wait())
-            try:
-                done,_=await asyncio.wait([worker,wait],timeout=35,return_when=asyncio.FIRST_COMPLETED)
-                if worker in done:worker.result();raise RuntimeError("worker exited before readiness")
-                if wait not in done:raise TimeoutError("worker readiness timeout")
-                atomic_json(run/"worker-ready.json",{"ready":True,"workflow_id":run_id})
-            finally:
-                if not wait.done():wait.cancel()
+        if worker is not None:
+            if worker.returncode is not None:raise RuntimeError("dedicated worker exited")
+            return
+        if not bundle_path.exists():raise RuntimeError("worker bundle missing")
+        output=run/"worker.stdout"
+        with output.open("wb") as out,(run/"worker.stderr").open("wb") as err:
+            worker=await asyncio.create_subprocess_exec(sys.executable,"-m","graph_execution_runtime.cli","worker","--bundle",str(bundle_path),
+                cwd=run,env=dict(os.environ,PYTHON_DOTENV_DISABLED="1"),stdout=out,stderr=err,start_new_session=True)
+        atomic_json(run/"worker-process.json",{"pid":worker.pid,"workflow_id":run_id})
+        deadline=asyncio.get_running_loop().time()+35
+        while asyncio.get_running_loop().time()<deadline:
+            if worker.returncode is not None:raise RuntimeError("worker exited before readiness")
+            for line in output.read_text(errors="replace").splitlines():
+                try:r=json.loads(line)
+                except ValueError:continue
+                if isinstance(r,dict) and r.get("ready") is True and r.get("workflow_id")==run_id and r.get("queue")==run_id:
+                    atomic_json(run/"worker-ready.json",{"ready":True,"workflow_id":run_id})
+                    return
+            await asyncio.sleep(.2)
+        raise TimeoutError("worker readiness timeout")
     async def supervise():
         nonlocal process,restart,controller,stage,stop_requested
         p=load_profile(profile_path(root),root);baseline=inspect(root)
@@ -124,7 +131,7 @@ async def execute(args):
                 phase_env=dict(env,GEXEC_MASTER_PHASE=phase)
                 process=await asyncio.create_subprocess_exec(str(px),"--agent","graph_execution_runtime.pax_bridge:agent",
                     "--database",str(run/f"pax-{tag}.db"),"--request-limit",str(limit),"-p",prompt,
-                    cwd=run,env=phase_env,stdout=stream,stderr=asyncio.subprocess.STDOUT)
+                    cwd=run,env=phase_env,stdout=stream,stderr=asyncio.subprocess.STDOUT,start_new_session=True)
                 atomic_json(run/f"master-{tag}.json",{"pid":process.pid,"generation":attempt,"phase":phase,"request_cap":limit})
                 while process.returncode is None:
                     if (run/"cancel.request").exists():
@@ -133,6 +140,7 @@ async def execute(args):
                     try:await asyncio.wait_for(process.wait(),timeout=.5)
                     except asyncio.TimeoutError:pass
             atomic_json(run/f"master-exit-{tag}.json",{"phase":phase,"attempt":attempt,"exit_code":process.returncode})
+            await stop_process()
         def remaining():
             return 60-budget.summary()["requests_by_actor"].get("master",0)
         async with asyncio.timeout(max(1,p["timeout"]-90)):
@@ -150,6 +158,8 @@ async def execute(args):
             result.update(decision="GO",stage="completed",implementation_ref=stage.ref,implementation_commit=stage.head(),
                           tasks={k:v["status"] for k,v in s["tasks"].items()},peer_ack=any(m["status"]=="PROCESSED" for m in s["messages"]),
                           final_checks=True,original_unchanged=True,workflow_id=s["workflow_id"])
+    loop=asyncio.get_running_loop();current=asyncio.current_task()
+    loop.add_signal_handler(signal.SIGTERM,current.cancel)
     try:
         client=await asyncio.wait_for(Client.connect(local_address("localhost:7233")),timeout=20)
         if not await asyncio.wait_for(client.service_client.check_health(),timeout=10):raise RuntimeError("Temporal unhealthy")
@@ -161,23 +171,53 @@ async def execute(args):
         if (run/"planning-validation.json").is_file():
             result["planning_validation"]=load_json(run/"planning-validation.json")
     finally:
-        try:
-            await stop_process()
-            if bundle_path.exists() and client and result["decision"]!="GO":
-                try:
-                    controller=Controller(client,bundle_path)
-                    desc=await asyncio.wait_for(controller.handle.describe(),timeout=5)
-                    if desc.status and desc.status.name=="RUNNING":
-                        await controller.stop("supervisor terminal failure")
-                        await asyncio.wait_for(controller.handle.result(),timeout=30)
-                except RPCError as exc:
-                    if exc.status.name!="NOT_FOUND":raise
-            if worker:
-                worker.cancel()
-                try:await asyncio.wait_for(worker,timeout=10)
-                except asyncio.CancelledError:pass
-        except Exception as exc:
-            result.update(decision="NO_GO",cleanup_error=type(exc).__name__)
+        # Cleanup stages are independent: failure to drain a workflow must not
+        # skip stopping the dedicated worker or removing run-owned containers.
+        cleanup={}
+        async def step(name,fn):
+            try:cleanup[name]=await fn()
+            except Exception as exc:cleanup[name]={"error":type(exc).__name__}
+        async def stop_master():
+            await stop_process();return {"stopped":True}
+        await step("master",stop_master)
+        async def stop_workflow():
+            if not bundle_path.exists() or client is None:return {"status":"not_started"}
+            if result["decision"]=="GO":return {"status":"verified_complete"}
+            handle=client.get_workflow_handle(run_id)
+            try:
+                desc=await asyncio.wait_for(handle.describe(),timeout=5)
+                status=desc.status.name if desc.status else "UNKNOWN"
+                if status=="RUNNING":
+                    try:
+                        from .durable_workflows import GraphRun
+                        await asyncio.wait_for(handle.signal(GraphRun.stop,"supervisor terminal failure"),timeout=5)
+                        await asyncio.wait_for(handle.result(),timeout=10)
+                    except Exception:
+                        # Only this run's workflow; never reset the namespace or
+                        # cancel unrelated work. Preserve an explicit forced-stop receipt.
+                        await asyncio.wait_for(handle.terminate(reason="bounded supervisor cleanup"),timeout=5)
+                    desc=await asyncio.wait_for(handle.describe(),timeout=5)
+                    status=desc.status.name if desc.status else "UNKNOWN"
+                if status in ("RUNNING","UNKNOWN"):raise RuntimeError("workflow stop unconfirmed")
+                # Best effort final snapshot while the dedicated worker exists.
+                try:await asyncio.wait_for(Controller(client,bundle_path).status(),timeout=3)
+                except Exception:pass
+                return {"status":status}
+            except RPCError as exc:
+                if exc.status.name=="NOT_FOUND":return {"status":"not_started"}
+                raise
+        await step("workflow",stop_workflow)
+        async def stop_worker():
+            await stop_owned_process(worker);return {"stopped":True}
+        await step("worker",stop_worker)
+        async def stop_containers():
+            # Bounded synchronous Docker calls: no executor threads left behind.
+            return {"removed":remove_run_containers(run_id)}
+        await step("containers",stop_containers)
+        result["cleanup"]=cleanup
+        if any("error" in x for x in cleanup.values()):
+            result.update(decision="NO_GO",cleanup_error="incomplete_cleanup")
+        loop.remove_signal_handler(signal.SIGTERM)
         result["master_restarts"]=restart
         try:result["budget"]=budget.summary()
         except Exception as exc:result.update(decision="NO_GO",budget_error=type(exc).__name__)

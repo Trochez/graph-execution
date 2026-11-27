@@ -6,6 +6,7 @@ from graph_execution_runtime.gitstage import git,inspect,inventory
 from graph_execution_runtime.coding_tools import checks_in_sandbox,compact_receipts
 from graph_execution_runtime.sandbox import docker
 from graph_execution_runtime.cli import private_json
+from graph_execution_runtime.process_control import matching_run,read_terminal,recover_receipt
 
 def main():
     p=argparse.ArgumentParser()
@@ -26,11 +27,16 @@ def main():
     if not env.get("GEXEC_PROBE_API_KEY"):env["GEXEC_PROBE_API_KEY"]=getpass.getpass("Provider API key (local only): ")
     control=out/"fault-control";control.mkdir(mode=0o700)
     if a.scenario=="L02":env["GEXEC_QUALIFICATION_FAULT_CONTROL"]=str(control)
-    facts=[]
+    facts=[];run=None;watchdog=False;terminal_seen=None
+    state_root=Path.home()/".local/state/graph-execution/runs"
     with (out/"runner.stdout").open("wb") as stdout,(out/"runner.stderr").open("wb") as stderr:
         proc=subprocess.Popen([str(gexec),"run","--plan",str(out/"PLAN.md"),"--workspace",str(root)],env=env,stdout=stdout,stderr=stderr)
         deadline=time.monotonic()+1250
         while proc.poll() is None and time.monotonic()<deadline:
+            if run is None:run=matching_run(state_root,root,out/"PLAN.md")
+            if read_terminal(run) is not None:
+                if terminal_seen is None:terminal_seen=time.monotonic()
+                if time.monotonic()-terminal_seen>8:break
             if a.scenario=="L02":
                 for kind in ("worker","master"):
                     marker=control/(kind+".json");release=control/(kind+".released")
@@ -55,11 +61,12 @@ def main():
                     private_json(release,{"released":True})
             time.sleep(.2)
         if proc.poll() is None:
+            watchdog=True
             proc.terminate()
-            try:proc.wait(timeout=40)
+            try:proc.wait(timeout=75)
             except subprocess.TimeoutExpired:proc.kill();proc.wait()
-    try:r=json.loads((out/"runner.stdout").read_text())
-    except (OSError,ValueError):r={"decision":"NO_GO"}
+    if run is None:run=matching_run(state_root,root,out/"PLAN.md")
+    r,recovery=recover_receipt(out/"runner.stdout",run,proc.returncode,watchdog)
     predicates={"runtime_go":r.get("decision")=="GO" and proc.returncode==0,
                 "original_unchanged":inspect(root)==baseline,"baseline_failure":initial[-1]["exit_code"]!=0,
                 "final_oracle":False,"all_skills_loaded":False,"peer_ack":False,"actual_worker_install":False,
@@ -91,6 +98,6 @@ def main():
         except (OSError,KeyError,ValueError,TypeError):pass
     receipt={"scenario":a.scenario,"probe":"PASS" if all(predicates.values()) else "FAIL","predicates":predicates,
              "run_id":r.get("run_id"),"runtime_exit":proc.returncode,"budget":r.get("budget"),"faults":facts,
-             "implementation_commit":r.get("implementation_commit"),"effective_model":"unknown","scope":"fixture evidence only; not full release GO"}
+             "implementation_commit":r.get("implementation_commit"),"receipt_recovery":recovery,"cleanup":r.get("cleanup"),"effective_model":"unknown","scope":"fixture evidence only; not full release GO"}
     private_json(out/"qualification-receipt.json",receipt);print(json.dumps(receipt,indent=2));return 0 if receipt["probe"]=="PASS" else 2
 if __name__=="__main__":raise SystemExit(main())
