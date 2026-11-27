@@ -94,11 +94,11 @@ class CodingSession:
         if self.repeated>=3:raise RuntimeError("NO_PROGRESS_LOOP")
     def install(self,wheels):
         self.budget.tool();return self.sandbox.install(wheels)
-    def run(self,argv,timeout):
+    def run(self,argv,timeout,*,guard_repeat=True):
         self.budget.tool()
         r=self.sandbox.run(argv,timeout)
         atomic_json(self.record,{"status":"command_completed","container":self.sandbox.name,"attempt":self.attempt,"base":self.base_revision,"commands":compact_receipts(self.sandbox.receipts)})
-        self.repeat(json.dumps([argv,r["exit_code"],r["output_sha256"]]))
+        if guard_repeat:self.repeat(json.dumps([argv,r["exit_code"],r["output_sha256"]]))
         return r
     def attach(self,agent):
         @agent.tool_plain
@@ -167,13 +167,13 @@ class CodingSession:
         async def run_tests(argv:list[str])->dict:
             """Run actual approved test argv in the attempt sandbox."""
             return await run_command(argv,60)
-    def approved_checks(self,indices):
+    def approved_checks(self,indices,*,submission=False):
         commands=self.bundle["check_commands"][self.task["id"]]
         if not isinstance(indices,list) or not 1<=len(indices)<=4 or any(type(i)!=int or not 0<=i<len(commands) for i in indices) or len(set(indices))!=len(indices):
             return {"denied":True,"reason":"select valid unique approved check indices"}
         results=[]
         for i in indices:
-            r=self.run(commands[i],60)
+            r=self.run(commands[i],60,guard_repeat=not submission)
             results.append({"index":i,"exit_code":r["exit_code"],"output":r["output"][:2048]})
         return {"results":results,"passed":all(r["exit_code"]==0 for r in results)}
     def batch(self,operations):

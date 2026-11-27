@@ -5,7 +5,7 @@ The compiler and early team gate share the same ownership constraints.
 """
 from __future__ import annotations
 import re
-from .policy import safe_path,within
+from .policy import safe_path,within,required_check_indices
 
 class RuntimeContractError(ValueError):
     def __init__(self,code,message):
@@ -99,3 +99,5 @@ def extension_contract(profile,tasks,team,extension):
         for i,argv in enumerate(s["checks"]):
             if argv not in profile["checks"]:
                 fail("CHECK_NOT_APPROVED",f"Task {k}: checks[{i}] must exactly match one approved argv from gexec_policy. Do not invent or abbreviate commands.")
+        missing=[i for i in required_check_indices(profile,s["writes"]) if profile["checks"][i] not in s["checks"]]
+        if missing:fail("REQUIRED_CHECK_MISSING",f"Task {k}: include mandatory approved check indices {missing} for its write groups.")

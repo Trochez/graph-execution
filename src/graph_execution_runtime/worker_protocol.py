@@ -2,6 +2,13 @@
 from __future__ import annotations
 from .scheduler import conflicts
 
+def plan_slice(text,offset=0):
+    """Bounded exact source text, with explicit continuation (character offset)."""
+    if type(offset)!=int or not 0<=offset<=len(text):raise ValueError("invalid plan offset")
+    end=min(len(text),offset+4000)
+    while len(text[offset:end].encode("utf-8"))>6000:end-=1
+    return {"text":text[offset:end],"offset":offset,"next_offset":end if end<len(text) else None,"complete":offset==0 and end==len(text),"total_characters":len(text)}
+
 def initial_context(task,before,limit=12000):
     result={};remaining=limit
     for path in sorted(set(task["reads"]+task["writes"])):

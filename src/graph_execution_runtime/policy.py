@@ -27,6 +27,20 @@ def safe_path(path):
 def within(path, prefixes):
     return any(path==p or path.startswith(p+"/") for p in prefixes)
 
+def required_check_indices(profile,writes):
+    """Operator-approved write-group checks, matched only to actual write paths."""
+    return sorted({i for group,indices in profile.get("required_checks_by_write_group",{}).items()
+                   if any(within(path,[group]) for path in writes) for i in indices})
+
+def validate_required_checks(profile):
+    rules=profile.get("required_checks_by_write_group",{})
+    if not isinstance(rules,dict) or len(rules)>30:raise ValueError("invalid required check mapping")
+    for group,indices in rules.items():
+        if not within(safe_path(group),profile.get("write_paths",profile["paths"])):
+            raise ValueError("required check group outside write policy")
+        if not isinstance(indices,list) or not 1<=len(indices)<=4 or any(type(i)!=int or not 0<=i<len(profile["checks"]) for i in indices) or len(set(indices))!=len(indices):
+            raise ValueError("invalid mandatory check indices")
+
 def command(argv, allowed):
     if not isinstance(argv,list) or not 1<=len(argv)<=24 or any(type(x)!=str or not x or len(x)>2048 or "\x00" in x for x in argv):
         raise ValueError("invalid argv")
@@ -41,7 +55,7 @@ def command(argv, allowed):
 
 def validate_profile(p, root, *, verify_wheels=True):
     fields={"schema","workspace","image","wheelhouse","wheels","paths","commands","checks","final_checks","capacity","timeout","acknowledge","model","base_url","approval","skill_root"}
-    if not isinstance(p,dict) or not fields<=set(p) or set(p)-fields-{"oracle","oracle_files","write_paths","required_parallel_roots","require_independent_review","required_peer_handoff"} or p["schema"]!=2 or p["acknowledge"]!="local-trusted-docker-offline":
+    if not isinstance(p,dict) or not fields<=set(p) or set(p)-fields-{"oracle","oracle_files","write_paths","required_parallel_roots","require_independent_review","required_peer_handoff","required_checks_by_write_group"} or p["schema"]!=2 or p["acknowledge"]!="local-trusted-docker-offline":
         raise ValueError("invalid profile schema or approval")
     if Path(p["workspace"]).resolve()!=root.resolve():
         raise ValueError("profile belongs to another repository")
@@ -68,6 +82,7 @@ def validate_profile(p, root, *, verify_wheels=True):
     if not set(p["commands"])<= {"python","pytest"}:raise ValueError("unknown command family")
     for argv in p["checks"]+p["final_checks"]:command(argv,p["commands"])
     if len(p["checks"])>16 or len(p["final_checks"])>8:raise ValueError("verification command budget")
+    validate_required_checks(p)
     if type(p["capacity"])!=int or not 1<=p["capacity"]<=3 or type(p["timeout"])!=int or not 60<=p["timeout"]<=1200:
         raise ValueError("run budget outside supported limits")
     wheelhouse=Path(p["wheelhouse"]).resolve(strict=True)
@@ -124,6 +139,8 @@ def compile_settings(profile, tasks, team, extension):
             command(argv,profile["commands"])
             # Only explicitly operator-approved verification argv, not model-authored host code.
             if argv not in profile["checks"]:raise PermissionError("unapproved independent check")
+        if any(profile["checks"][i] not in s["checks"] for i in required_check_indices(profile,s["writes"])):
+            raise ValueError("required write-group verification omitted")
         if t.get("human_gates") or set(t.get("required_capabilities",[]))-{"text_read","text_proposal","peer_message","master_verify","review","sandbox","command","offline_install","text_edit"}:
             raise ValueError("unsupported requirement")
         scopes[k]={"reads":s["reads"],"writes":s["writes"],"resources":s["resources"],"timeout":min(300,profile["timeout"]),"request_budget":per_task}

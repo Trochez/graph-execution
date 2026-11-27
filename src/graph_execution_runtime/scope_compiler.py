@@ -8,7 +8,7 @@ from copy import deepcopy
 from .runtime_contract import team_contract,extension_contract,fail
 from .parallel_contract import plan_candidates
 from .scheduler import conflicts
-from .policy import within,safe_path
+from .policy import within,safe_path,required_check_indices
 
 def compact_contract(profile,tasks,team):
     rows=tasks["tasks"]
@@ -18,6 +18,7 @@ def compact_contract(profile,tasks,team):
     return {"master":master,"roles":roles,"parents":parents,"owners":owners,
             "required_root_pairs":pairs,"checks_by_index":profile["checks"],
             "required_peer_handoff":bool(profile.get("required_peer_handoff")),
+            "required_checks_by_write_group":profile.get("required_checks_by_write_group",{}),
             "task_write_groups":{t["id"]:t.get("write_scope",[]) for t in rows},
             "rules":["Supply only scopes with reads, writes, check_indices. Inherit hierarchy and scheduled resources.",
                      "Each task selects 1 to 4 approved zero-based check indices.",
@@ -46,6 +47,7 @@ def normalize_extension(profile,tasks,team,submitted):
             fail("SCHEDULE_RESOURCES","Frozen schedule resources must be bounded strings.")
         schedule.setdefault(k,set()).update(resources)
     output={"master":c["master"],"roles":c["roles"],"parents":c["parents"],"scopes":{}}
+    added_checks=[]
     for t in rows:
         k=t["id"];s=scopes[k]
         if not isinstance(s,dict) or set(s)!={"reads","writes","check_indices"}:
@@ -64,6 +66,11 @@ def normalize_extension(profile,tasks,team,submitted):
             fail("WRITE_SCOPE_DRIFT",f"Task {k}: writes must be inside its frozen planned write groups; read-only tasks cannot write.")
         if any(not any(within(p,[g]) for p in s["writes"]) for g in groups):
             fail("WRITE_SCOPE_MISSING",f"Task {k}: provide at least one exact output file for each planned write group.")
+        mandatory=required_check_indices(profile,s["writes"])
+        missing=[i for i in mandatory if i not in idx]
+        if len(idx)+len(missing)>4:fail("CHECK_COUNT",f"Task {k}: mandatory and selected checks exceed four; choose a smaller valid set.")
+        idx=list(idx)+missing
+        if missing:added_checks.append({"task":k,"indices":missing})
         output["scopes"][k]={"reads":list(s["reads"]),"writes":list(s["writes"]),
             "resources":sorted(schedule.get(k,set())),"checks":[profile["checks"][i] for i in idx]}
     # First validate ALL requested paths against approved policy. An unapproved
@@ -81,7 +88,7 @@ def normalize_extension(profile,tasks,team,submitted):
             b["reads"]=[p for p in b["reads"] if p not in overlap]
             removed=[{"task":receiver,"path":p,"reason":"required_direct_peer_handoff"} for p in sorted(overlap)]
     extension_contract(profile,tasks,team,output)
-    return output,{"format":"compact","narrowed_peer_reads":removed}
+    return output,{"format":"compact","narrowed_peer_reads":removed,"added_required_checks":added_checks}
 
 def root_priorities(profile,tasks,team,scopes):
     """Give the required pair the first available slots, never waive conflicts."""

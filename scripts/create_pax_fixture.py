@@ -46,6 +46,51 @@ class Acceptance(unittest.TestCase):
         self.assertIn("gexec-fixture-units==1.0.0",Path("requirements.txt").read_text())
 if __name__=="__main__":unittest.main()
 """
+# This public, operator-approved component test does not depend on the
+# validation root having been published yet. The final oracle uses the real
+# integrated implementation, with no substitute module.
+CLI_COMPONENT_CHECK = """import contextlib,io,json,runpy,sys,types
+from pathlib import Path
+import orderlib,gexec_fixture_units as units
+assert units.__version__=='1.0.0'
+assert 'gexec-fixture-units==1.0.0' in Path('requirements.txt').read_text().splitlines()
+real_cents=units.cents
+calls=[]
+def tracked_cents(value):
+    calls.append(('cents',value))
+    return real_cents(value)
+units.cents=tracked_cents
+def validate(q):
+    calls.append(('validate',q))
+    if q<=0: raise ValueError('quantity must be positive')
+    return q
+def invoke(args):
+    sys.argv=['order_cli',*args]
+    out=io.StringIO()
+    code=0
+    with contextlib.redirect_stdout(out),contextlib.redirect_stderr(io.StringIO()):
+        try: runpy.run_module('order_cli',run_name='__main__',alter_sys=True)
+        except SystemExit as e: code=e.code or 0
+    return code,out.getvalue()
+for version,q,price in [('component-vA',3,125),('component-vB',2,71)]:
+    v=types.ModuleType('orderlib.validation')
+    v.CONTRACT_VERSION=version
+    v.validate_quantity=validate
+    sys.modules[v.__name__]=v
+    orderlib.validation=v
+    calls.clear()
+    code,output=invoke([str(q),str(price)])
+    assert code==0,'valid two-argument invocation failed'
+    expected=dict(quantity=q,unit_price_cents=price,total_cents=q*price,contract_version=version)
+    assert json.loads(output)==expected,'incorrect CLI JSON contract'
+    assert ('validate',q) in calls,'must use shared validator'
+    assert ('cents',q*price) in calls,'must use approved cents for total'
+    assert invoke([str(q),str(price)])==(0,output),'non-deterministic CLI'
+    for bad in [['0','125'],['-1','125'],['x','125'],['3','x'],['3']]:
+        assert invoke(bad)[0]!=0,'invalid arguments accepted'
+print('CLI_COMPONENT_PASS')
+"""
+
 def main():
     p=argparse.ArgumentParser();p.add_argument("--output",required=True,type=Path);p.add_argument("--image",required=True)
     p.add_argument("--base-url",required=True);p.add_argument("--model",required=True);p.add_argument("--approval",type=Path,default=Path.home()/".config/graph-execution/pax/model-policy.json")
@@ -61,11 +106,11 @@ def main():
     wheels=out/"wheels";wheels.mkdir();name=wheel(wheels)
     oracle=out/"oracle";oracle.mkdir();(oracle/"verify.py").write_text(ORACLE)
     check1=["python","-m","unittest","discover","-s","tests","-p","test_validation.py"]
-    check2=["python","-c","import ast; from pathlib import Path; ast.parse(Path('order_cli/__main__.py').read_text()); import gexec_fixture_units; assert gexec_fixture_units.__version__=='1.0.0'"]
+    check2=["python","-c",CLI_COMPONENT_CHECK]
     check3=["python","-c","from pathlib import Path; assert not Path('obsolete.txt').exists()"]
     profile={"schema":2,"workspace":str(root),"image":a.image,"wheelhouse":str(wheels),"wheels":{name:hash_file(wheels/name)},
              "paths":["orderlib","order_cli","tests","requirements.txt","obsolete.txt","pyproject.toml"],"write_paths":["orderlib","order_cli","requirements.txt","obsolete.txt","pyproject.toml"],"commands":["python"],"checks":[check1,check2,check3],
-             "final_checks":[check1,["python","/oracle/verify.py"]],"required_parallel_roots":["orderlib/validation.py","order_cli"],"require_independent_review":True,"required_peer_handoff":True,"capacity":2,"timeout":1200,"acknowledge":"local-trusted-docker-offline",
+             "final_checks":[check1,["python","/oracle/verify.py"]],"required_parallel_roots":["orderlib/validation.py","order_cli"],"require_independent_review":True,"required_peer_handoff":True,"required_checks_by_write_group":{"orderlib/validation.py":[0],"order_cli":[1],"obsolete.txt":[2]},"capacity":2,"timeout":1200,"acknowledge":"local-trusted-docker-offline",
              "model":a.model,"base_url":a.base_url,"approval":str(a.approval.resolve()),"skill_root":str(Path(__file__).resolve().parents[1]),
              "oracle":str(oracle),"oracle_files":{"verify.py":hash_file(oracle/"verify.py")}}
     (out/"profile.json").write_text(json.dumps(profile,indent=2));(out/"profile.json").chmod(0o600)

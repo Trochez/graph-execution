@@ -26,6 +26,8 @@ def model_for(task):
             for p in m.parts:
                 if p.part_kind=="tool-return":returns[p.tool_name]=p.content
         k=task["id"]
+        initial=[p.content for m in messages for p in m.parts if p.part_kind=="user-prompt"]
+        assert any(isinstance(p,str) and "Make two contract files and review." in p and "original_plan_requirements" in p for p in initial)
         if k=="R":
             if "read_file" not in returns:return ModelResponse(parts=[ToolCallPart("read_file",{"path":"src/a.txt"})])
             assert returns["read_file"]=="contract-v2"
