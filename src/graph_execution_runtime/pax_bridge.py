@@ -49,7 +49,7 @@ agent=Agent(model_factory(base_url,key,model_id,master_budget),
     capabilities=[Skills("skills",workspace=LocalWorkspaceBackend(skill_root),
         include=["gexec","critical-path-planner","backlog-team-designer","native-plan-executor"])],
     instructions="You are the active Pax master. If a planning config exists, load gexec and follow each skill in sequence using the stage tools. "
-    + ("Use gexec_load_skill for all four skills, gexec_inventory and gexec_policy for approved project context. After both stages complete, call gexec_prepare_autonomous with a typed extension. The supervisor starts the worker automatically. Never request manual per-task settings. " if autonomous else "Complete stages one and two, then pause if the operator-approved execution bundle or worker is absent. ")
+    + ("Use gexec_load_skill for all four skills, gexec_inventory and gexec_policy for approved project context. After both stages complete, call gexec_prepare_autonomous with a typed extension. The supervisor starts the worker automatically. Never request manual per-task settings. For each planning stage use its artifact schema. tasks.json MUST contain a nonempty top-level unit and numeric durations. When a stage tool returns repair_required, correct the named artifact in the same session and retry its validation once. Never proceed after blocked. " if autonomous else "Complete stages one and two, then pause if the operator-approved execution bundle or worker is absent. ")
     +
     "Resume in this session once the operator has prepared them. For standalone execution, load native-plan-executor. "
     "Do not use subprocesses or edit source artifacts. Inspect each proposal before approving and run integrated check tools. "
@@ -81,14 +81,16 @@ def gexec_plan_source() -> str:
 def gexec_stage_begin(stage: str) -> dict:
     """Start planner or team designer after the previous gate."""
     if autonomous:
-        p=planning_pipeline()
-        s=p.read()
-        if s["active_stage"]==stage:return s
+        from .planning_repair import PlanningRepair
+        return PlanningRepair(planning_pipeline()).begin(stage)
     return planning_pipeline().begin(stage)
 
 @agent.tool_plain
-def gexec_stage_write(stage: str, filename: str, content: str) -> str:
-    """Write one named planning artifact in the active stage only."""
+def gexec_stage_write(stage: str, filename: str, content: str) -> str | dict:
+    """Write one named planning artifact in the active stage only. For tasks.json use a JSON object with nonempty top-level unit, tasks array, numeric duration, id, source, outcome, verification and depends_on per task. Invalid JSON returns bounded repair feedback."""
+    if autonomous:
+        from .planning_repair import PlanningRepair
+        return PlanningRepair(planning_pipeline()).write(stage,filename,content)
     return planning_pipeline().put(stage,filename,content)
 
 @agent.tool_plain
@@ -98,7 +100,10 @@ def gexec_stage_read(stage: str, filename: str) -> str:
 
 @agent.tool_plain
 def gexec_stage_finish(stage: str, evidence: str) -> dict:
-    """Validate artifacts with bundled deterministic analyzers and finish a planning stage."""
+    """Validate artifacts and finish a planning stage. repair_required means correct the named artifact and call again, not terminate. blocked means stop; never advance to the next stage."""
+    if autonomous:
+        from .planning_repair import PlanningRepair
+        return PlanningRepair(planning_pipeline()).finish(stage,evidence)
     return planning_pipeline().finish(stage,evidence)
 
 @agent.tool_plain
@@ -246,7 +251,21 @@ def gexec_load_skill(name:str)->str:
     from .pipeline import atomic_json
     p=skill_root/"skills"/name/"SKILL.md"
     atomic_json(Path(planning["run_dir"])/"skill-loads"/(name+".json"),{"skill":name,"sha256":hash_file(p)})
-    return p.read_text()
+    content=p.read_text()
+    if name in ("critical-path-planner","backlog-team-designer"):
+        from .planning_validation import schema
+        content+="\n\nRequired artifact schema (examples only; do not copy example tasks):\n"+json.dumps(schema(name),separators=(",",":"))
+    return content
+
+@agent.tool_plain
+def gexec_stage_contract(stage:str,full_reference:bool=False)->str:
+    """Read the exact planning artifact schema; optionally read the installed full stage reference."""
+    if not autonomous:raise ValueError("autonomous mode only")
+    master_budget.tool()
+    from .planning_validation import schema
+    contract=schema(stage)
+    if full_reference:return (skill_root/contract["reference"]).read_text()
+    return json.dumps(contract,separators=(",",":"))
 
 @agent.tool_plain
 def gexec_inventory()->list[str]:

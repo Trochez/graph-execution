@@ -64,3 +64,7 @@ Then each run only requires:
     gexec run --plan /absolute/PLAN.md --workspace /absolute/project
 
 All work publishes to a new local gexec-<id> branch, not the original checkout. The run receipt is under ~/.local/state/graph-execution/runs/<run-id>/FINAL_DECISION.json. Use gexec status --run-id <id> or gexec cancel --run-id <id>. No remote push, merge or automatic cleanup of the original checkout. GO means that project's admitted scope completed; it does not certify the product or all other projects. Only approved wheels, text changes and Python/pytest in isolated containers are supported. The current scratch cap is monitored, not a hard filesystem quota. Recovery only retries a proven discarded scratch attempt; unknown activity/process failure or uncertain publication stops. Request/token reservations are conservative and tool accounting does not include all built-in capability calls. Full F01–F13 and the final release predicate remain separate from these local probes.
+
+### Planning validation recovery
+
+Autonomous stage errors now identify the artifact and reason (for example `DURATION_UNIT_REQUIRED`) in `planning-validation.json`. The master can repair that artifact once without restarting the process. After a second validation failure, the planning stage is blocked and the supervisor stops. The analyzer still rejects missing units, malformed durations, cycles and unknown dependencies; there is no inferred default unit. Previous failed qualification records remain immutable.

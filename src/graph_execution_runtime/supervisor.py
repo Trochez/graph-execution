@@ -108,7 +108,7 @@ async def execute(args):
                  GEXEC_TEMPORAL_ADDRESS="localhost:7233",PYTHON_DOTENV_DISABLED="1",PYDANTIC_AI_NO_BANNER="1")
         prompt=("Use the four actual gexec skills. Call gexec_load_skill('gexec'), gexec_pipeline_init, "
                 "gexec_plan_source, gexec_inventory and gexec_policy. Load critical-path-planner and generate its exact "
-                "required artifacts using the stage tools; verify and finish it. Load backlog-team-designer, "
+                "required artifacts using the stage tools. tasks.json MUST be an object with nonempty top-level unit (actual common duration unit), tasks array and numeric duration per task. Use the schema returned when loading the skill. If validation returns repair_required, fix the named artifact and retry validation once; if blocked, stop. Verify and finish it. Load backlog-team-designer, "
                 "generate and verify its artifacts without altering the DAG. Load native-plan-executor, "
                 "call gexec_prepare_autonomous with exact scopes and approved checks. Call gexec_start after "
                 "the supervisor registers the worker. Inspect every proposal using gexec_proposal, then explicitly "
@@ -140,6 +140,13 @@ async def execute(args):
                         try:await asyncio.wait_for(process.wait(),timeout=.5)
                         except asyncio.TimeoutError:pass
                     await ensure_worker()
+                validation=run/"planning-validation.json"
+                if validation.exists():
+                    failures=load_json(validation)
+                    terminal=[v["last"] for v in failures.values() if v.get("terminal")]
+                    if terminal:
+                        result["planning_failure"]=terminal[0]
+                        raise RuntimeError("focused planning repair exhausted")
                 final=run/"journal/records/final-checks.json"
                 if process.returncode==0 and final.is_file() and load_json(final)["passed"]:
                     break
@@ -163,6 +170,8 @@ async def execute(args):
         await supervise()
     except (Exception,KeyboardInterrupt,asyncio.CancelledError) as exc:
         result.update(decision="NO_GO",error_type=type(exc).__name__)
+        if (run/"planning-validation.json").is_file():
+            result["planning_validation"]=load_json(run/"planning-validation.json")
     finally:
         try:
             await stop_process()

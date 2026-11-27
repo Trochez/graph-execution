@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 from .config import load_json
+from .planning_validation import PlanningInputError,check_tasks,helper_error
 
 PLAN="critical-path-planner"
 TEAM="backlog-team-designer"
@@ -102,13 +103,18 @@ class Pipeline:
             raise ValueError("not active stage")
         directory=self.run_dir/stage
         files=[directory/name for name in OUTPUTS[stage]]
-        if any(not p.is_file() or p.is_symlink() or p.stat().st_size==0 for p in files):
-            raise ValueError("missing or empty artifacts")
+        missing=[p.name for p in files if not p.is_file() or p.is_symlink() or p.stat().st_size==0]
+        if missing:
+            raise PlanningInputError("ARTIFACT_MISSING","Write the missing or empty required artifact(s): "+", ".join(missing),missing[0])
+        if stage==PLAN:
+            try:doc=load_json(directory/"tasks.json")
+            except json.JSONDecodeError as exc:raise PlanningInputError("JSON_INVALID",f"tasks.json invalid JSON at line {exc.lineno}, column {exc.colno}.","tasks.json") from None
+            check_tasks(doc)
         input_name,output_name,helper=DERIVED[stage]
         calc=subprocess.run([sys.executable,str(self.skill_root/"skills"/stage/"scripts"/helper),
                              str(directory/input_name)],capture_output=True,timeout=20,text=True)
         if calc.returncode!=0:
-            raise ValueError("deterministic graph helper rejected input")
+            raise helper_error(input_name,calc.stderr)
         atomic_json(directory/output_name,json.loads(calc.stdout))
         if stage==PLAN:
             tasks=load_json(directory/"tasks.json")["tasks"]
@@ -122,12 +128,12 @@ class Pipeline:
             def deps(rows):
                 return {t["id"]:sorted(t.get("depends_on",[])) for t in rows}
             if len(graph)!=len(prior) or deps(graph)!=deps(prior):
-                raise ValueError("team altered source DAG")
+                raise PlanningInputError("DAG_CHANGED","The team graph must preserve all validated task IDs and dependency edges.","task-graph.json")
             ids=set(deps(prior));assign=team["task_assignments"];agents={a["id"] for a in team["agents"]}
             if len(assign)!=len(ids) or {a["task_id"] for a in assign}!=ids or any(a["owner_agent_id"] not in agents for a in assign):
-                raise ValueError("invalid task assignment coverage")
+                raise PlanningInputError("ASSIGNMENT_COVERAGE","Assign every task exactly once to an agent in the roster.","team-definition.json")
             for key in ("clusters","staffing","schedule","constraints","alternatives"):
-                if key not in team:raise ValueError("missing team contract field: "+key)
+                if key not in team:raise PlanningInputError("TEAM_FIELD_REQUIRED","Required team field: "+key,"team-definition.json")
         self.gate.finish(s,stage,[*files,directory/output_name],evidence)
         self.gate._write(self.manifest,s)
         return s
