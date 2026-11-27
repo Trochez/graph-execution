@@ -127,6 +127,8 @@ def compile_settings(profile, tasks, team, extension):
         if t.get("human_gates") or set(t.get("required_capabilities",[]))-{"text_read","text_proposal","peer_message","master_verify","review","sandbox","command","offline_install","text_edit"}:
             raise ValueError("unsupported requirement")
         scopes[k]={"reads":s["reads"],"writes":s["writes"],"resources":s["resources"],"timeout":min(300,profile["timeout"]),"request_budget":per_task}
+    from .scope_compiler import root_priorities
+    for k,priority in root_priorities(profile,tasks,team,scopes).items():scopes[k]["priority"]=priority
     return {"master":extension["master"],"roles":extension["roles"],"parents":extension["parents"],
             "scopes":scopes,"capacity":profile["capacity"],"run_timeout":profile["timeout"],"model":profile["model"],
             "sandbox_mode":True,"check_commands":{k:extension["scopes"][k]["checks"] for k in ids},"final_checks":profile["final_checks"]}

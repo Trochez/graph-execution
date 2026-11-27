@@ -56,7 +56,8 @@ class MasterBridgeTests(unittest.TestCase):
                        "parents":{"M":None,"A":"M","B":"M","R":"M"},
                        "scopes":{t["id"]:{"reads":["src/a.py","src/b.py"] if t["id"]=="R" else [],
                                  "writes":t["write_scope"],"resources":[],"checks":checks} for t in rows}}
-            wrong_extension=json.loads(json.dumps(extension));wrong_extension["scopes"]["A"]["checks"]=[["python","-c","print(123)"]]
+            compact={"scopes":{k:{"reads":v["reads"],"writes":v["writes"],"check_indices":[0]} for k,v in extension["scopes"].items()}}
+            wrong_extension=json.loads(json.dumps(compact));wrong_extension["scopes"]["A"]["check_indices"]=[99]
             def write(stage,filename,content):
                 return ("gexec_stage_write",{"stage":stage,"filename":filename,"content":content if isinstance(content,str) else json.dumps(content)})
             def begin(stage):return ("gexec_stage_begin",{"stage":stage})
@@ -73,7 +74,7 @@ class MasterBridgeTests(unittest.TestCase):
                 "prepare":[skill("native-plan-executor"),("gexec_skill_reference",{"name":"pax-protocol"}),
                            ("gexec_stage_read",{"stage":TEAM,"filename":"team-definition.json"}),
                            ("gexec_prepare_autonomous",{"extension":wrong_extension}),
-                           ("gexec_prepare_autonomous",{"extension":extension})]}
+                           ("gexec_prepare_autonomous",{"extension":compact})]}
             try:
                 with patch.dict(os.environ,{"GEXEC_RUN_BUNDLE":str(bp),"GEXEC_PIPELINE_CONFIG":str(cfg),
                     "GEXEC_PROBE_API_KEY":"synthetic-not-a-secret"}):
@@ -93,7 +94,7 @@ class MasterBridgeTests(unittest.TestCase):
                                 self.assertEqual(returns[-1]["code"],"MASTER_TASK_OWNER")
                             if phase=="prepare" and index==4:
                                 returns=[p.content for m in messages for p in m.parts if p.part_kind=="tool-return" and p.tool_name=="gexec_prepare_autonomous"]
-                                self.assertEqual(returns[-1]["code"],"CHECK_NOT_APPROVED")
+                                self.assertEqual(returns[-1]["code"],"CHECK_INDICES")
                             if index==len(script):
                                 return ModelResponse(parts=[TextPart("phase completed")])
                             name,args=script[index];index+=1

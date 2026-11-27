@@ -46,7 +46,19 @@ def check_spec(profile,spec):
                    agents[tasks[a]["owner"]]["role"]==agents[tasks[b]["owner"]]["role"]=="worker" and
                    path_hits(tasks[a]["writes"],pair[0]) and path_hits(tasks[b]["writes"],pair[1])
                    for a in initial for b in initial):
-            raise ParallelContractError("Compiled root tasks cannot launch concurrently: use distinct owners, disjoint writes/reads and no conflicting resource reservation for the two approved path groups.")
+            candidates=[(a,b) for a,x in tasks.items() for b,y in tasks.items()
+                        if a!=b and not x["dependencies"] and not y["dependencies"] and
+                        path_hits(x["writes"],pair[0]) and path_hits(y["writes"],pair[1])]
+            details=[]
+            for a,b in sorted(candidates)[:3]:
+                x,y=tasks[a],tasks[b]
+                if x["owner"]==y["owner"]:details.append(f"{a}/{b}: same owner")
+                shared=set(x["resources"])&set(y["resources"])
+                if shared:details.append(f"{a}/{b}: shared frozen resource reservation")
+                if any(conflicts(p,q) for p in x["writes"] for q in y["reads"]):details.append(f"{b}.reads conflicts with {a}.writes; use peer HANDOFF if required")
+                if any(conflicts(p,q) for p in y["writes"] for q in x["reads"]):details.append(f"{a}.reads conflicts with {b}.writes")
+                if any(conflicts(p,q) for p in x["writes"] for q in y["writes"]):details.append(f"{a}/{b}: overlapping writes")
+            raise ParallelContractError("Compiled root tasks cannot launch concurrently. "+("; ".join(details) if details else "Check exact write groups and worker owners.")+" Preserve genuine resource locks and required independent roots.")
     if profile.get("required_peer_handoff"):
         from .worker_protocol import handoff_pairs
         if len(handoff_pairs(profile,spec))!=1:raise ParallelContractError("Required direct handoff must identify exactly one sender and receiver root task.")

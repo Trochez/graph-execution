@@ -314,12 +314,16 @@ def gexec_policy()->dict:
     if not autonomous:raise ValueError("autonomous mode only")
     master_budget.tool()
     p=planning["profile"]
-    return {"paths":p["paths"],"write_paths":p.get("write_paths",p["paths"]),"commands":p["commands"],"checks":p["checks"],"wheels":sorted(p["wheels"]),
+    contract={}
+    if phase=="prepare":
+        from .scope_compiler import compact_contract
+        from .pipeline import PLAN,TEAM
+        run=Path(planning["run_dir"])
+        contract=compact_contract(p,load_json(run/PLAN/"tasks.json"),load_json(run/TEAM/"team-definition.json"))
+    return {"compiled_contract":contract,"paths":p["paths"],"write_paths":p.get("write_paths",p["paths"]),"commands":p["commands"],"checks":p["checks"],"wheels":sorted(p["wheels"]),
             "master_rule":"The master coordinates, reviews and approves only; every executable task including integration and cleanup must have a non-master owner. Reviewers are read-only. Preserve the validated roles and hierarchy.",
             "capacity":p["capacity"],"required_parallel_roots":p.get("required_parallel_roots",[]),"require_independent_review":p.get("require_independent_review",False),
-            "extension_schema":{"master":"agent ID","roles":{"agent ID":"master|worker|reviewer|lead"},
-            "parents":{"agent ID":"parent ID or null"},"scopes":{"task ID":{"reads":["exact relative path"],"writes":["exact relative path"],
-            "resources":["resource"],"checks":[["approved argv"]]}}}}
+            "extension_schema":{"scopes":{"task ID":{"reads":["exact relative file path"],"writes":["exact relative file path"],"check_indices":[0]}}}}
 
 @phase_tool
 def gexec_prepare_autonomous(extension:dict)->dict:
@@ -355,4 +359,5 @@ def gexec_prepare_autonomous(extension:dict)->dict:
         from .pipeline import atomic_json
         old=load_json(compile_record)
         atomic_json(compile_record,{**old,"status":"repaired","prepared":True})
-    return {"prepared":True,"workflow_id":b["spec"]["workflow_id"],"next":"gexec_start; supervisor will register the worker"}
+    record=Path(planning["run_dir"])/"scope-compilation.json"
+    return {"prepared":True,"workflow_id":b["spec"]["workflow_id"],"translation":load_json(record) if record.exists() else {},"next":"gexec_start; supervisor will register the worker"}

@@ -14,14 +14,14 @@ def compile_bundle(planning,bundle_path,extension):
     p=Pipeline(Path(planning["plan"]),run,Path(planning["skill_root"]))
     tp=run/PLAN/"tasks.json";tm=run/TEAM/"team-definition.json"
     p.bind(tp,tm)
+    from .scope_compiler import normalize_extension
+    tasks,team=load_json(tp),load_json(tm)
+    extension,translation=normalize_extension(profile,tasks,team,extension)
     if bundle_path.exists():
         from .operator import load_bundle
         b=load_bundle(bundle_path)
         if b["extension_sha256"]!=digest(extension):raise PermissionError("cannot change prepared extension")
         return b
-    from .runtime_contract import extension_contract
-    tasks,team=load_json(tp),load_json(tm)
-    extension_contract(profile,tasks,team,extension)
     settings=compile_settings(profile,tasks,team,extension)
     settings["policy_sha256"]=planning["policy_sha256"]
     spec=prepare(planning["run_id"],p.plan,tp,tm,settings)
@@ -41,5 +41,6 @@ def compile_bundle(planning,bundle_path,extension):
     # Supervisor creates this run's branch before invoking the master.
     if Staging(root,profile,spec["workflow_id"],bundle["baseline"],journal/"publication").head()!=bundle["baseline"]["head"]:
         raise PermissionError("unexpected initial staging head")
+    atomic_json(run/"scope-compilation.json",{"translation":translation,"initial_priorities":{k:t["priority"] for k,t in spec["tasks"].items()}})
     private_json(bundle_path,bundle)
     return bundle
