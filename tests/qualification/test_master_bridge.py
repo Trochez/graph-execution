@@ -47,7 +47,8 @@ class MasterBridgeTests(unittest.TestCase):
             rows=[{"id":k,"duration":1,"source":"PLAN.md","outcome":"result "+k,"verification":"check",
                    "depends_on":deps,"write_scope":writes} for k,deps,writes in
                   [("A",[],["src/a.py"]),("B",[],["src/b.py"]),("R",["A","B"],[])]]
-            bad=json.loads(json.dumps(rows));bad[1]["depends_on"]=["A"]
+            bad=json.loads(json.dumps(rows))
+            for t in bad:t.pop("write_scope")
             team={"agents":[{"id":k,"role":role} for k,role in [("M","master"),("A","worker"),("B","worker"),("R","reviewer")]],
                   "task_assignments":[{"task_id":k,"owner_agent_id":k,"leaf_cluster_id":"C"} for k in ("A","B","R")],
                   "clusters":[],"staffing":{},"schedule":[],"constraints":{},"alternatives":[]}
@@ -65,7 +66,7 @@ class MasterBridgeTests(unittest.TestCase):
             def skill(name):return ("gexec_load_skill",{"name":name})
             sequences={
                 "plan":[skill("gexec"),skill(PLAN),("gexec_policy",{}),begin(PLAN),write(PLAN,"backlog.md","# Backlog"),
-                        write(PLAN,"tasks.json",{"unit":"hours","tasks":bad}),finish(PLAN),
+                        write(PLAN,"tasks.json",{"unit":"hours","tasks":bad}),
                         write(PLAN,"tasks.json",{"unit":"hours","tasks":rows}),finish(PLAN)],
                 "team":[skill(TEAM),("gexec_stage_read",{"stage":PLAN,"filename":"tasks.json"}),begin(TEAM),
                         write(TEAM,"team-definition.md","# Team"),write(TEAM,"team-definition.json",wrong_team),
@@ -86,9 +87,10 @@ class MasterBridgeTests(unittest.TestCase):
                             nonlocal index
                             exposed={t.name for t in info.function_tools}
                             self.assertEqual(exposed,TOOLS[phase])
-                            if phase=="plan" and index==7:
-                                returns=[p.content for m in messages for p in m.parts if p.part_kind=="tool-return" and p.tool_name=="gexec_stage_finish"]
-                                self.assertEqual(returns[-1]["code"],"TOPOLOGY_CONTRACT")
+                            if phase=="plan" and index==6:
+                                returns=[p.content for m in messages for p in m.parts if p.part_kind=="tool-return" and p.tool_name=="gexec_stage_write"]
+                                self.assertEqual(returns[-1]["code"],"WRITE_SCOPE_REQUIRED")
+                                self.assertIn("A, B, R",returns[-1]["message"])
                             if phase=="team" and index==7:
                                 returns=[p.content for m in messages for p in m.parts if p.part_kind=="tool-return" and p.tool_name=="gexec_stage_finish"]
                                 self.assertEqual(returns[-1]["code"],"MASTER_TASK_OWNER")

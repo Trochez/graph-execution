@@ -19,7 +19,14 @@ class PlanningRepair:
         return self.pipeline.begin(stage)
     def write(self,stage,filename,content):
         if self.blocked(stage):return {"accepted":False,"status":"blocked","stage":stage}
-        try:return self.pipeline.put(stage,filename,content)
+        try:
+            result=self.pipeline.put(stage,filename,content)
+            if self.profile.get("schema")==2 and stage=="critical-path-planner" and filename=="tasks.json":
+                from .planning_validation import check_execution_tasks
+                check_execution_tasks(json.loads(content),self.profile)
+            return result
+        except PlanningInputError as exc:
+            return self.reject(stage,exc)
         except json.JSONDecodeError as exc:
             return self.reject(stage,PlanningInputError("JSON_INVALID",f"Invalid JSON at line {exc.lineno}, column {exc.colno}. Rewrite the same artifact as valid JSON.",filename))
     def reject(self,stage,exc):
@@ -31,7 +38,7 @@ class PlanningRepair:
         result={"accepted":False,"status":"blocked" if terminal else "repair_required",
                 "stage":stage,"artifact":exc.artifact,"code":exc.code,"message":str(exc),
                 "validation_failures":count,"repairs_remaining":0 if terminal else 1,
-                "next":"stop; do not advance or restart this stage" if terminal else "correct the named artifact, preserve requirements and call gexec_stage_finish again"}
+                "next":"stop; do not advance or restart this stage" if terminal else "rewrite the named artifact with the requested correction, preserve all other valid fields, then call gexec_stage_finish only after the write succeeds"}
         data[stage]={"failures":count,"terminal":terminal,"last":result}
         atomic_json(self.path,data)
         if terminal and self.pipeline.read()["active_stage"]==stage:
@@ -41,7 +48,7 @@ class PlanningRepair:
         if self.blocked(stage):return self.state()[stage]["last"]
         try:
             from .parallel_contract import check_plan,check_team,ParallelContractError
-            from .planning_validation import check_tasks
+            from .planning_validation import check_execution_tasks
             from .pipeline import PLAN,TEAM
             if self.profile.get("schema")==2 and stage==TEAM:
                 path=self.pipeline.run_dir/TEAM/"team-definition.json"
@@ -49,12 +56,13 @@ class PlanningRepair:
                     from .runtime_contract import team_contract
                     rows=json.loads((self.pipeline.run_dir/PLAN/"tasks.json").read_text())["tasks"]
                     team_contract(rows,json.loads(path.read_text()))
-            if self.profile.get("required_parallel_roots") or self.profile.get("require_independent_review"):
+            topology=self.profile.get("required_parallel_roots") or self.profile.get("require_independent_review")
+            if self.profile.get("schema")==2 or topology:
                 path=self.pipeline.run_dir/PLAN/"tasks.json"
                 if path.is_file():
-                    rows=json.loads(path.read_text());check_tasks(rows)
-                    if stage==PLAN:check_plan(self.profile,rows["tasks"])
-                    elif stage==TEAM and (self.pipeline.run_dir/TEAM/"team-definition.json").is_file():
+                    rows=json.loads(path.read_text());check_execution_tasks(rows,self.profile)
+                    if topology and stage==PLAN:check_plan(self.profile,rows["tasks"])
+                    elif topology and stage==TEAM and (self.pipeline.run_dir/TEAM/"team-definition.json").is_file():
                         check_team(self.profile,rows["tasks"],json.loads((self.pipeline.run_dir/TEAM/"team-definition.json").read_text()))
             return self.pipeline.finish(stage,evidence)
         except ParallelContractError as exc:return self.reject(stage,PlanningInputError("TOPOLOGY_CONTRACT",str(exc),"tasks.json" if stage==PLAN else "team-definition.json"))

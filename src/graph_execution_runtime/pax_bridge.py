@@ -103,7 +103,7 @@ def gexec_stage_begin(stage: str) -> dict:
 
 @phase_tool
 def gexec_stage_write(stage: str, filename: str, content: str) -> str | dict:
-    """Write one named planning artifact in the active stage only. For tasks.json use a JSON object with nonempty top-level unit, tasks array, numeric duration, id, source, outcome, verification and depends_on per task. Invalid JSON returns bounded repair feedback."""
+    """Write one named planning artifact in the active stage only. For tasks.json use a JSON object with nonempty top-level unit, tasks array, numeric duration, id, source, outcome, verification, depends_on and explicit write_scope array per task. For autonomous tasks, write_scope is required even for read-only tasks (use []). Invalid JSON or autonomous task metadata returns bounded repair feedback; correct the artifact before finishing."""
     if autonomous:
         from .planning_repair import PlanningRepair
         if phase and stage!={"plan":"critical-path-planner","team":"backlog-team-designer"}.get(phase):return {"status":"denied","reason":"wrong master phase"}

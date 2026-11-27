@@ -45,6 +45,43 @@ def check_tasks(doc):
         if not set(t.get("depends_on",[]))<=ids:
             invalid("UNKNOWN_DEPENDENCY",f"tasks[{i}].depends_on refers to an unknown ID; preserve the intended dependency and use an existing ID.",artifact)
 
+def check_execution_tasks(doc,profile):
+    """Autonomous-only metadata validation, before any topology inference."""
+    check_tasks(doc)
+    from .policy import safe_path,within
+    rows=doc["tasks"]
+    artifact="tasks.json"
+    if len(rows)>16:invalid("TASK_COUNT","Autonomous execution supports at most 16 tasks.",artifact)
+    missing=[t["id"] for t in rows if "write_scope" not in t]
+    if missing:
+        roots=profile.get("required_parallel_roots",[])
+        detail=(" Required independent write groups: "+json.dumps(roots)+".") if roots else ""
+        invalid("WRITE_SCOPE_REQUIRED","Add explicit write_scope arrays to these task IDs: "+", ".join(missing)+
+                ". Use the actual authorized relative write paths or planned directory groups for implementation/deletion tasks; use [] only for genuinely read-only tasks. Preserve existing IDs, durations, dependencies, outcomes and verification."+detail,artifact)
+    for t in rows:
+        k=t["id"];groups=t["write_scope"]
+        if not isinstance(groups,list) or len(groups)>20 or any(type(g)!=str or not g for g in groups):
+            invalid("WRITE_SCOPE_INVALID",f"Task {k}: write_scope must be an array of at most 20 authorized relative path strings, or [] for read-only work.",artifact)
+        canonical=[]
+        for g in groups:
+            try:
+                p=safe_path(g.rstrip("/"))
+                if "paths" in profile:
+                    allowed=profile.get("write_paths",profile["paths"])
+                    if not within(p,allowed) or not within(p,profile["paths"]):
+                        raise PermissionError("outside scope")
+                    # Planned groups may be directories. If a group is an
+                    # explicit mapped alias, exact targets remain compiler-bound.
+                    mapping=profile.get("directory_files",{})
+                    for group,targets in mapping.items():
+                        if p!=group and within(p,[group]) and p not in targets and not any(f.startswith(p+"/") for f in targets):
+                            raise PermissionError("undeclared target")
+            except (ValueError,PermissionError,TypeError):
+                invalid("WRITE_SCOPE_NOT_APPROVED",f"Task {k}: write_scope contains an invalid or unapproved relative path/group. Use the approved project policy; do not expand it.",artifact)
+            canonical.append(p)
+        if len(set(canonical))!=len(canonical):
+            invalid("WRITE_SCOPE_DUPLICATE",f"Task {k}: remove duplicate write_scope paths.",artifact)
+
 def helper_error(artifact,stderr):
     # Fixed diagnostic vocabulary; never copy arbitrary subprocess output into
     # model history or public receipts. The unchanged helper remains authoritative.
@@ -67,7 +104,9 @@ def schema(stage):
                 "tasks_json_example":{"unit":"hours","assumptions":["State actual estimation assumptions"],"tasks":[
                     {"id":"T01","title":"Example only","source":"PLAN.md#requirement","outcome":"Verifiable outcome","duration":1,"effort":1,
                      "depends_on":[],"verification":"Actual acceptance condition","write_scope":["exact authorized relative path"]}]},
+                "autonomous_required_task_fields":["id","source","outcome","duration","depends_on","verification","write_scope"],
                 "rules":["Use a nonempty top-level unit matching all durations.","Use unique IDs and finite numeric duration per task.",
+                         "In autonomous mode EVERY task must contain write_scope: actual approved relative write groups for mutations (including deletions), [] only for read-only tasks. Missing is not equivalent to [].",
                          "Use depends_on for prerequisite IDs and preserve every source requirement.",
                          "The example is a schema illustration, never a task to copy."]}
     if stage=="backlog-team-designer":
