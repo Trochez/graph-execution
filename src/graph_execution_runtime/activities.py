@@ -148,7 +148,10 @@ class Activities:
         assignment = {k: task[k] for k in ("id", "owner", "source", "outcome", "checks", "reads", "writes")}
         assignment["defined_peers"] = packet["agents"]
         assignment["repair_reason"] = repair
-        if coding:assignment["approved_wheels"]=sorted(coding.profile["wheels"])
+        if coding:
+            assignment["approved_wheels"]=sorted(coding.profile["wheels"])
+            assignment["approved_check_argv"]=coding.bundle["check_commands"][task["id"]]
+            assignment["test_protocol"]="For a required failing-before/passing-after test, run the applicable exact approved test argv before changing files and rerun that same argv after repair. Do not substitute pytest for unittest. An approved check is not proof until its exit and output are observed. Use actual install_dependencies for required wheels."
         try:
             if coding:await asyncio.to_thread(coding.start)
             async with asyncio.timeout(max(1, task["timeout"] - 5)):
@@ -171,7 +174,8 @@ class Activities:
                 if isinstance(exc,SandboxInterrupted):
                     await asyncio.to_thread(coding.close)
                     return {"disposition":"retryable","reason":"sandbox interrupted and discarded","container_stopped":True}
-            return {"disposition": "blocked", "reason": type(exc).__name__}
+            from .budget import BudgetError
+            return {"disposition": "blocked", "reason": exc.code if isinstance(exc,BudgetError) else type(exc).__name__}
         finally:
             if coding and not coding.cleaned:await asyncio.to_thread(coding.close)
 

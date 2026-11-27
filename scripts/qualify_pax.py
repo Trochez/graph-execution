@@ -81,7 +81,7 @@ def main():
                 ar=json.loads(af.read_text());commands=ar.get("commands",[])
                 predicates["actual_worker_install"]|=any(c["argv"][:3]==["python","-m","pip"] and c["exit_code"]==0 for c in commands)
                 tests=[c for c in commands if c["argv"][:3]==["python","-m","unittest"]]
-                predicates["actual_worker_failed_and_passed_test"]|=any(t["exit_code"] not in (0,None) and any(x["exit_code"]==0 for x in tests[i+1:]) for i,t in enumerate(tests))
+                predicates["actual_worker_failed_and_passed_test"]|=any(t["argv"]==profile["checks"][0] and t["exit_code"] not in (0,None) and any(x["argv"]==t["argv"] and x["exit_code"]==0 for x in tests[i+1:]) for i,t in enumerate(tests))
             predicates["final_oracle"]=final["passed"] and final["commit"]==r.get("implementation_commit") and any(x.get("argv")==["python","/oracle/verify.py"] and x["exit_code"]==0 for x in final["checks"])
             if a.scenario=="L02":
                 predicates["both_faults"]=len(facts)==2 and all(f["run_id"]==r.get("run_id") for f in facts)

@@ -115,7 +115,7 @@ def model_factory(base_url, key, model_id, budget=None):
         validate_endpoint(base_url)
         if not key:raise ValueError("approved local key required")
         client=AsyncOpenAI(base_url=base_url,api_key=key,max_retries=0,timeout=45,
-            http_client=httpx.AsyncClient(timeout=45,event_hooks={"request":[budget.on_request]}))
+            http_client=httpx.AsyncClient(timeout=45,event_hooks={"request":[budget.on_request],"response":[budget.on_response]}))
     else:client=provider_client(base_url,key)
     return OpenAIChatModel(model_id[7:], provider=OpenAIProvider(openai_client=client))
 

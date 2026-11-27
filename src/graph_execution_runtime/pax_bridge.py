@@ -46,7 +46,7 @@ if phase is not None and phase not in PHASES:raise ValueError("invalid master ph
 master_budget=None
 if autonomous:
     from .budget import Budget
-    master_budget=Budget(Path(planning["run_dir"])/"budget.db","master",60)
+    master_budget=Budget(Path(planning["run_dir"])/"budget.db","master",60,phase=phase)
 agent=Agent(model_factory(base_url,key,model_id,master_budget),
     model_settings={"max_tokens":4096 if phase in ("plan","team","prepare") else 8192} if autonomous else None,
     capabilities=[] if phase else [Skills("skills",workspace=LocalWorkspaceBackend(skill_root),

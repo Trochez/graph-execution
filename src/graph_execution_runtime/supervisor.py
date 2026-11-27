@@ -157,6 +157,7 @@ async def execute(args):
     except (Exception,KeyboardInterrupt,asyncio.CancelledError) as exc:
         result.update(decision="NO_GO",error_type=type(exc).__name__)
         if (run/"master-phase.json").is_file():result["master_phase"]=load_json(run/"master-phase.json")
+        if (run/"compile-validation.json").is_file():result["compile_validation"]=load_json(run/"compile-validation.json")
         if (run/"planning-validation.json").is_file():
             result["planning_validation"]=load_json(run/"planning-validation.json")
     finally:
