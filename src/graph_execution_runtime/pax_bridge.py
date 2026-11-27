@@ -159,7 +159,13 @@ def gexec_runtime_info() -> dict:
     if not bundle_path.exists():
         return {"host":"pax","mode":"pax-durable-autonomous" if autonomous else "pax-durable","candidate":True,"planning":True,"execution_bundle":"not prepared","model":model_id}
     spec=execution_bundle()["spec"]
-    if autonomous:return {"host":"pax","mode":"pax-durable-autonomous","workflow_id":spec["workflow_id"],"tasks":spec["tasks"],"master":spec["master"],"model":spec["model"],"limits":["offline container Python commands","exact approved path writes","master-approved Git CAS publication"]}
+    if autonomous:
+        b=execution_bundle();result={"host":"pax","mode":"pax-durable-autonomous","workflow_id":spec["workflow_id"],"tasks":spec["tasks"],"master":spec["master"],"model":spec["model"],"limits":["offline container Python commands","exact approved path writes","master-approved Git CAS publication"]}
+        if phase=="execute":
+            catalog=b["profile"]["checks"]
+            result["check_catalog"]=catalog
+            result["task_check_indices"]={k:[catalog.index(argv) for argv in cmds] for k,cmds in b["check_commands"].items()}
+        return result
     return {"host":"pax","mode":"pax-durable","candidate":True,"workflow_id":spec["workflow_id"],
             "master":spec["master"],"tasks":spec["tasks"],"model":spec["model"],"master_model":model_id,
             "limits":["trusted local Temporal only","whole-turn activities","exact-path text proposals",
@@ -212,13 +218,21 @@ async def gexec_review(task_id: str, action: str, evidence: str) -> dict:
 @phase_tool
 async def gexec_verify(task_id: str) -> dict:
     """Run the operator-approved actual verification commands on integrated files."""
-    return await (await controller()).verify(task_id)
+    result=await (await controller()).verify(task_id)
+    if phase=="execute":
+        from .master_context import verification_for_master
+        return verification_for_master(result,execution_bundle()["profile"]["checks"])
+    return result
 
 
 @phase_tool
 async def gexec_finalize() -> dict:
     """Run the approved final integrated checks only after all tasks are verified."""
     result=await (await controller()).finalize()
+    if phase=="execute":
+        from .master_context import compact_receipts_for_master
+        checks=compact_receipts_for_master(result["checks"],execution_bundle()["final_checks"])
+        return {"passed":result["passed"],"final_check_receipts":checks,"status":compact_status(result["snapshot"])}
     return {"passed":result["passed"],"checks":result["checks"],"status":compact_status(result["snapshot"])}
 
 
@@ -235,6 +249,9 @@ async def gexec_proposal(task_id: str) -> dict | None:
     if autonomous and p is not None:
         from .pipeline import atomic_json
         atomic_json(Path(planning["run_dir"])/"inspections"/(task_id+".json"),{"attempt":p["attempt"],"proposal_sha256":p["proposal_sha256"]})
+        if phase=="execute":
+            from .master_context import proposal_for_master
+            return proposal_for_master(p,execution_bundle()["profile"]["checks"])
     return p
 
 @phase_tool
@@ -266,7 +283,11 @@ async def gexec_review_and_verify(task_id: str, attempt: int, evidence: str) -> 
     if autonomous:
         inspection=load_json(Path(planning["run_dir"])/"inspections"/(task_id+".json"))
         if inspection["attempt"]!=attempt:raise ValueError("stale or uninspected attempt")
-        return await c.review_and_verify(task_id,attempt,evidence,inspection["proposal_sha256"])
+        result=await c.review_and_verify(task_id,attempt,evidence,inspection["proposal_sha256"])
+        if phase=="execute":
+            from .master_context import verification_for_master
+            return verification_for_master(result,execution_bundle()["profile"]["checks"])
+        return result
     return await c.review_and_verify(task_id,attempt,evidence)
 
 
@@ -321,10 +342,10 @@ def gexec_policy()->dict:
     p=planning["profile"]
     contract={}
     if phase=="prepare":
-        from .scope_compiler import compact_contract
         from .pipeline import PLAN,TEAM
         run=Path(planning["run_dir"])
-        contract=compact_contract(p,load_json(run/PLAN/"tasks.json"),load_json(run/TEAM/"team-definition.json"))
+        from .master_context import preparation_context
+        return preparation_context(p,load_json(run/PLAN/"tasks.json"),load_json(run/TEAM/"team-definition.json"),planning["read_paths"])
     return {"compiled_contract":contract,"directory_files":p.get("directory_files",{}),"required_checks_by_write_group":p.get("required_checks_by_write_group",{}),"paths":p["paths"],"write_paths":p.get("write_paths",p["paths"]),"commands":p["commands"],"checks":p["checks"],"wheels":sorted(p["wheels"]),
             "master_rule":"The master coordinates, reviews and approves only; every executable task including integration and cleanup must have a non-master owner. Reviewers are read-only. Preserve the validated roles and hierarchy.",
             "capacity":p["capacity"],"required_parallel_roots":p.get("required_parallel_roots",[]),"require_independent_review":p.get("require_independent_review",False),

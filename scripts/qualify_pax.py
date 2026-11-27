@@ -71,6 +71,8 @@ def main():
                 "original_unchanged":inspect(root)==baseline,"baseline_failure":initial[-1]["exit_code"]!=0,
                 "final_oracle":False,"all_skills_loaded":False,"peer_ack":False,"actual_worker_install":False,
                 "actual_worker_failed_and_passed_test":False,"independent_reviewer":False,"overlap":False}
+    if a.scenario=="L02":
+        predicates.update(both_faults=False,master_recovered=False,worker_recovered=False)
     if r.get("records"):
         run=Path(r["records"])
         predicates["all_skills_loaded"]=all((run/"skill-loads"/(name+".json")).is_file() for name in ("gexec","critical-path-planner","backlog-team-designer","native-plan-executor"))

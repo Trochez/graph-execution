@@ -72,7 +72,7 @@ class MasterBridgeTests(unittest.TestCase):
                         write(TEAM,"task-graph.json",{"tasks":rows,"couplings":[]}),finish(TEAM),
                         write(TEAM,"team-definition.json",team),finish(TEAM)],
                 "prepare":[skill("native-plan-executor"),("gexec_skill_reference",{"name":"pax-protocol"}),
-                           ("gexec_stage_read",{"stage":TEAM,"filename":"team-definition.json"}),
+                           ("gexec_policy",{}),
                            ("gexec_prepare_autonomous",{"extension":wrong_extension}),
                            ("gexec_prepare_autonomous",{"extension":compact})]}
             try:
@@ -92,6 +92,12 @@ class MasterBridgeTests(unittest.TestCase):
                             if phase=="team" and index==7:
                                 returns=[p.content for m in messages for p in m.parts if p.part_kind=="tool-return" and p.tool_name=="gexec_stage_finish"]
                                 self.assertEqual(returns[-1]["code"],"MASTER_TASK_OWNER")
+                            if phase=="prepare" and index==3:
+                                returns=[p.content for m in messages for p in m.parts if p.part_kind=="tool-return" and p.tool_name=="gexec_policy"]
+                                self.assertEqual(returns[-1]["compiled_contract"]["owners"],{"A":"A","B":"B","R":"R"})
+                                self.assertEqual(returns[-1]["checks"],checks)
+                                self.assertNotIn("checks_by_index",returns[-1]["compiled_contract"])
+                                self.assertEqual(returns[-1]["inventory"],["src/a.py","src/b.py"])
                             if phase=="prepare" and index==4:
                                 returns=[p.content for m in messages for p in m.parts if p.part_kind=="tool-return" and p.tool_name=="gexec_prepare_autonomous"]
                                 self.assertEqual(returns[-1]["code"],"CHECK_INDICES")
